@@ -8,7 +8,7 @@ Status: ready-for-human
 
 ## What to build
 
-Cachear a lista de PRs por repo (electron-store) para abertura instantânea, revalidando em
+Cachear a lista de PRs por repo (store `conf`) para abertura instantânea, revalidando em
 segundo plano (stale-while-revalidate) e usando ETag/`If-None-Match` do GitHub para não gastar
 rate limit à toa. Mostrar indicador de "atualizado há X" e permitir refresh forçado.
 

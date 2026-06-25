@@ -13,7 +13,7 @@ sob refresh manual, lê **tudo que está fora do último commit** (staged + unst
 **arquivos novos/untracked**) via `simple-git` e renderiza agrupado conforme a estratégia do
 repo (modular → contexto; flat → camada), com o **rótulo de camada** detectado no topo.
 Read-only — nenhum commit, nenhum stage permanente que altere a intenção do usuário. Reusa o
-motor de agrupamento e o react-diff-view. **Arquivos untracked são renderizados sintetizando
+motor de agrupamento e o render de diff (Ink + `cli-highlight`). **Arquivos untracked são renderizados sintetizando
 o bloco de adição a partir do conteúdo do arquivo — sem `git add -N`, sem tocar o index.**
 Funciona também para repo **local-only** (sem owner/name).
 

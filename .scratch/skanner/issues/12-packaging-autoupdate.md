@@ -1,4 +1,4 @@
-# 12 — Empacotamento e auto-update (backlog)
+# 12 — Distribuição via npm (backlog)
 
 Status: ready-for-human
 
@@ -8,15 +8,16 @@ Status: ready-for-human
 
 ## What to build
 
-Empacotar o app para distribuição (electron-builder): ícones, artefato para macOS (DMG),
-assinatura/notarização, e auto-update. Até aqui a v1 roda em dev (`electron-vite dev`); esta
-issue torna o skanner um app instalável e atualizável.
+Empacotar o app para distribuição como CLI Node: `bin` com shebang, build de TS para dist,
+campos de publicação no `package.json` e versionamento. Até aqui a v1 roda em dev (`tsx`);
+esta issue torna o skanner instalável (`npm i -g` / executável via `npx`) e atualizável por
+versão. (Distribuição standalone — ex.: binário único — fica como opção futura, fora da v1.)
 
 ## Acceptance criteria
 
-- [ ] Gera um instalável para macOS com ícone próprio.
-- [ ] App assinado/notarizado (ou caminho documentado para rodar sem assinatura).
-- [ ] Auto-update funcional a partir de um canal de releases.
+- [ ] `npx skanner` (ou install global) sobe a TUI a partir do pacote publicado.
+- [ ] `package.json` tem `bin`, build de dist e metadados de publicação corretos.
+- [ ] Bump de versão publica e o usuário atualiza com o gestor de pacotes (sem auto-update próprio).
 
 ## Blocked by
 

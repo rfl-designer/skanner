@@ -9,7 +9,7 @@ Status: ready-for-agent
 ## What to build
 
 Na review da PR, marcar arquivos (e agregado por camada/feature) como **revisados**. O estado
-persiste por PR no electron-store e sobrevive a fechar/reabrir a PR. O progresso aparece na
+persiste por PR no store `conf` e sobrevive a fechar/reabrir a PR. O progresso aparece na
 navegação lateral.
 
 ## Acceptance criteria

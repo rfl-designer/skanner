@@ -19,6 +19,9 @@ não de chute. Anotação obrigatória em cada item: o que cobre e quando recorr
 - [Total TypeScript (Matt Pocock) — artigos gratuitos](https://www.totaltypescript.com/)
   Material de altíssima reputação, focado em padrões reais. Use para: aprofundar generics,
   utility types e padrões de modelagem depois da base.
+- [Ink — React for CLIs](https://github.com/vadimdemedes/ink)
+  React renderizado no terminal (`<Box>`/`<Text>`, flexbox, hooks como `useInput`). Use para:
+  construir a UI da TUI quando a missão chegar nos componentes (issue 01 em diante).
 - [MDN — JavaScript Guide](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide)
   Referência de confiança para os buracos de JS (funções, módulos, `async/await`).
   Use para: preencher base de JS quando uma lição encostar em algo não-tipado.
@@ -32,5 +35,6 @@ não de chute. Anotação obrigatória em cada item: o que cobre e quando recorr
   Servidor oficial. Use para: dúvida rápida e síncrona ("por que esse tipo não estreita?").
 
 ## Gaps
-- Falta um recurso de confiança específico para **Electron + TS tipando IPC** —
-  buscar quando a missão chegar na fronteira main↔renderer (issue 01 do PRD em diante).
+- Falta um recurso de confiança para **render de diff no terminal** (parse de hunks unified +
+  highlight via `cli-highlight`) — não há `react-diff-view` na TUI. Buscar quando a missão
+  chegar na review da PR (issue 05).

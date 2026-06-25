@@ -8,14 +8,21 @@ Status: ready-for-human
 
 ## What to build
 
-Atalhos de teclado para conduzir a review sem mouse: próximo/anterior arquivo, próximo/
-anterior grupo (feature/fluxo/camada), marcar arquivo como revisado, e foco na navegação
-lateral. Uma folha de atalhos acessível (ex.: tecla `?`).
+Numa TUI o teclado é o modo primário: a navegação básica (próximo/anterior arquivo) já nasce
+no núcleo (issue 05). Esta issue cobre o **conjunto rico** de atalhos: próximo/anterior grupo
+(feature/fluxo/camada), marcar arquivo como revisado, colapsar/expandir diff, foco na
+navegação lateral, e uma folha de atalhos acessível (ex.: tecla `?`).
+
+Inclui os atalhos do modelo cwd-primeiro ([ADR 0005](../../../docs/adr/0005-entrada-cwd-primeiro-sem-registry.md)):
+`[tab]` alterna Working diff ↔ PRs; `[m]` alterna o perfil `modular`/`flat` no cabeçalho (e
+edita o `modularBaseDir`); `[r]` recarrega o snapshot do Working diff; `[q]` sai.
 
 ## Acceptance criteria
 
 - [ ] Navego entre arquivos e grupos por teclado (próximo/anterior).
 - [ ] Marco "revisado" por teclado.
+- [ ] `[tab]` alterna entre Working diff e PRs; `[r]` recarrega o Working diff; `[q]` sai.
+- [ ] `[m]` alterna o perfil e edita o `modularBaseDir` inline.
 - [ ] `?` mostra a lista de atalhos.
 
 ## Blocked by

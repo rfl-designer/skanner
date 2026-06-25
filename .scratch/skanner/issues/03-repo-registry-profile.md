@@ -1,30 +1,39 @@
-# 03 — Cadastro de repos + perfil
+# 03 — Resolver repo do cwd + perfil
 
 Status: ready-for-agent
 
 ## Parent
 
-`.scratch/skanner/PRD.md`
+`.scratch/skanner/PRD.md` · [ADR 0005](../../../docs/adr/0005-entrada-cwd-primeiro-sem-registry.md)
 
 ## What to build
 
-Gestão dos repositórios acompanhados: adicionar (owner/name), listar e remover, persistindo
-no electron-store. Ao adicionar (e sob demanda), o app **auto-detecta o perfil** do repo:
-`modular` se o diretório base modular (default `app/Contexts`, configurável) existir na
-árvore do repo (via Octokit), senão `flat`. O usuário pode **corrigir manualmente** o perfil
-detectado e o diretório base. Também é possível cadastrar um repo **local-only** (só
-`localPath`, sem `owner/name`) — nesse caso o perfil é detectado pelo sistema de arquivos e
-as funcionalidades remotas (PRs) ficam ocultas.
+Resolução do repo a partir do **cwd** (cwd-primeiro — não há cadastro nem lista de repos).
+`repo.resolveFromCwd()`:
+
+- Acha a raiz do repo com `git rev-parse --show-toplevel`. Se o cwd não estiver num repo git →
+  **erro fatal** claro ("não é um repo git").
+- Deriva `owner/name` de `git remote get-url origin` (parseia ssh e https do GitHub). Sem
+  `origin` ou remote não-GitHub → repo **local-only** (sem `owner/name`); múltiplos remotes →
+  prefere `origin`.
+- **Auto-detecta o perfil** pelo filesystem da raiz: `modular` se o diretório base modular
+  (default `app/Contexts`, configurável) existir, senão `flat`.
+- Aplica os **overrides** do mapa `path → { profile, modularBaseDir, owner, name }` (store
+  `conf`) por cima do auto-detectado. O override de perfil/baseDir é corrigido **inline** (`[m]`,
+  issue 11); o `owner/name` de fallback é pedido lazy na aba PRs (issue 02).
+
+Sem `repos.add/remove/list`, sem tela Repos, sem `localPath` cadastrado — o `localPath` é a
+própria raiz do cwd.
 
 ## Acceptance criteria
 
-- [ ] Adiciono um repo por owner/name; ele aparece na lista e persiste após reiniciar.
+- [ ] `skanner` num repo git resolve a raiz (mesmo rodado de uma subpasta) e abre direto.
+- [ ] Fora de um repo git → erro fatal claro, sem stacktrace cru.
+- [ ] `owner/name` é derivado do `git remote origin` (ssh e https); sem GitHub → local-only.
 - [ ] `concilliun-crm` é detectado como `modular`; `soloboard` como `flat`.
-- [ ] Posso sobrescrever manualmente o perfil e o diretório base modular.
-- [ ] Posso associar um `localPath` a um repo; posso cadastrar um repo **local-only** (sem owner/name).
-- [ ] Em repo local-only, o perfil é detectado pelo filesystem e a UI esconde as partes remotas.
-- [ ] Posso remover um repo.
+- [ ] Um override de perfil/`modularBaseDir` no mapa sobrescreve o auto-detectado e persiste por path.
+- [ ] Nenhuma escrita de lista de repos no `conf` — só overrides quando há correção.
 
 ## Blocked by
 
-- `.scratch/skanner/issues/02-auth-pat.md`
+- `.scratch/skanner/issues/01-scaffold.md`

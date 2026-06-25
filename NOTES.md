@@ -8,14 +8,15 @@
   literais; `interface`/contratos; namespaces ↔ módulos. A bagagem é ativo, não passivo.
 - **Ancoragem:** cada lição constrói **uma peça real do Skanner**. Nada de `foo`/`bar`
   genérico — exemplos sempre do domínio (camadas, PRs, repos, paths Laravel).
-- **Primeiro foco:** TypeScript *a linguagem* (sistema de tipos) antes de React/Electron.
+- **Primeiro foco:** TypeScript *a linguagem* (sistema de tipos) antes de React/Ink (a UI).
 
 ## Decisões de sequência (zona de desenvolvimento proximal)
-- Entrada pela função pura `categorize(path)` (§4.2 do PRD): pura, testável, sem Electron/
+- Entrada pela função pura `categorize(path)` (§4.2 do PRD): pura, testável, sem UI/
   React/async — ideal para quem tem JS básico e quer o sistema de tipos primeiro.
 - Sequência provável: 0001 union/literal (`Layer`) → 0002 narrowing (decidir a camada por
   path, `if`/ordem) → 0003 arrays/objetos tipados (a árvore Feature→Camada→Arquivo) →
-  depois `interface`/generics → só então React tipado → fronteira IPC tipada.
+  depois `interface`/generics → só então React tipado **via Ink** (UI no terminal) → fronteira
+  tipada com o Node num processo único (Octokit/filesystem chamados direto, sem IPC).
 
 ## Convenções do workspace
 - Componentes compartilhados em `./assets/` (`styles.css`, `quiz.js`). Reuso é o padrão:

@@ -9,10 +9,10 @@ Status: ready-for-agent
 ## What to build
 
 Tornar a review robusta a diffs reais e falhas. Paginar a lista completa de arquivos da PR.
-Renderizar diff truncado como cabeçalho + link pro GitHub (sem corpo); arquivo gigante
-colapsado por padrão; binário como linha de status; renomeado como `old → new`; criado/
-deletado com badge claro. Tratar PAT inválido/ausente (→ Settings), sem rede (retry), rate
-limit (mostra reset) e estados vazios (sem PRs / sem arquivos).
+Renderizar diff truncado como cabeçalho + a URL do arquivo no GitHub (sem corpo); arquivo
+gigante colapsado por padrão (evita re-render pesado da TUI); binário como linha de status;
+renomeado como `old → new`; criado/deletado com badge claro. Tratar PAT inválido/ausente
+(→ Settings), sem rede (retry), rate limit (mostra reset) e estados vazios (sem PRs / sem arquivos).
 
 ## Acceptance criteria
 
