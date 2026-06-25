@@ -4,9 +4,10 @@ Implementation issues and triage for this repo live as **GitHub Issues** in
 `rfl-designer/skanner`, managed via the `gh` CLI. PRDs stay as markdown design docs in
 `.scratch/<feature-slug>/PRD.md` and are mirrored into a tracking (epic) issue.
 
-> Migrado de markdown local para GitHub em 2026-06-25 (ver `git log`). Os arquivos em
-> `.scratch/<feature>/issues/` permanecem como histórico do snapshot que originou as issues,
-> mas **não são mais a fonte de verdade** — daqui pra frente edite no GitHub.
+> Migrado de markdown local para GitHub em 2026-06-25 (ver `git log`). Os arquivos
+> `.scratch/<feature>/issues/<NN>-*.md` que originaram as issues foram **removidos** — vivem
+> no histórico do git (commit anterior a esta migração) se você precisar do snapshot. A fonte
+> de verdade agora é o GitHub. Só os `PRD.md` continuam em disco como docs de design.
 
 ## Conventions
 
