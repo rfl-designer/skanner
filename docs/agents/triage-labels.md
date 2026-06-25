@@ -13,3 +13,6 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+> O tracker é **GitHub Issues** (ver `issue-tracker.md`). Essas cinco labels já existem no repo
+> `rfl-designer/skanner` — aplique com `gh issue create --label <role>` ou `gh issue edit`.
