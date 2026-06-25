@@ -1,0 +1,25 @@
+{
+  "name": "skanner",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TUI pessoal que reorganiza o diff de uma PR como fatia vertical para revisão.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --watch src/cli.tsx",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ink": "^7.1.0",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.22.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.0"
+  }
+}
