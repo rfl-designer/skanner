@@ -26,7 +26,7 @@ agrupado na mesma lógica de fatia vertical.
 | Fonte | Octokit (GitHub) | **`simple-git`** (repo local) |
 | Escopo | PR inteira (todas as camadas) | **Change-set não-commitado (1 camada)** |
 | Dimensão dominante | Feature → Camada | **Feature** (camada é fixa por gate) |
-| Checklist | persistente (electron-store) | **efêmero/opcional** (some após o commit) |
+| Checklist | persistente (`conf`) | **efêmero/opcional** (some após o commit) |
 | Escrita | nenhuma | nenhuma |
 
 ## 3. Escopo da feature
@@ -60,11 +60,12 @@ agrupado na mesma lógica de fatia vertical.
 
 ## 4. Decisões técnicas
 
-- **`simple-git`** no main process para: detectar o root do repo, listar status (incl.
-  untracked) e produzir o diff. Untracked entra como adições (ex.: `add -N` intent-to-add
-  ou ler o conteúdo do arquivo novo como bloco de adição).
-- Novo canal IPC: `local.diff(repoPath)` → retorna a mesma estrutura de diff que o modo
-  remoto consome, para o agrupador e o `react-diff-view` não saberem a origem.
+- **`simple-git`** no processo Node para: detectar o root do repo, listar status (incl.
+  untracked) e produzir o diff. **Untracked é sintetizado como bloco todo-adições lendo o
+  conteúdo do arquivo — sem `git add -N`, sem tocar o index** (decisão fechada).
+- Novo módulo de serviço tipado `local.diff(repoPath)` (chamado direto pela TUI, sem IPC) →
+  retorna a mesma estrutura de diff que o modo remoto consome, para o agrupador e o render de
+  diff não saberem a origem.
 - Reuso integral de `categorize(path)` e `resolveContext(file, scopeContextSet)`.
 
 ## 5. Fluxo de uso
@@ -72,7 +73,7 @@ agrupado na mesma lógica de fatia vertical.
 1. Agente termina uma camada e para ("camada X pronta").
 2. No Skanner, aba **Working diff** do repo → **Atualizar**.
 3. Skanner mostra: rótulo da camada + arquivos agrupados por feature, na ordem da fatia,
-   cada um com `react-diff-view`.
+   cada um renderizado como diff unified no terminal (Ink + `cli-highlight`).
 4. Dono revisa. Se OK, volta ao chat e diz "pode commitar". Agente commita e segue.
 
 ## 6. Critérios de aceite (v1)

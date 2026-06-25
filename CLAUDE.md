@@ -4,11 +4,11 @@
 
 ### Issue tracker
 
-Issues e PRDs vivem como markdown local em `.scratch/<feature>/` (sem GitHub/GitLab). See `docs/agents/issue-tracker.md`.
+Issues vivem como **GitHub Issues** em `rfl-designer/skanner` (via `gh`); cada PRD vira um épico (label `epic`) com checklist dos filhos. PRDs continuam como markdown de design em `.scratch/<feature>/PRD.md`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Vocabulário padrão: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+Vocabulário padrão (labels reais no GitHub): `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
