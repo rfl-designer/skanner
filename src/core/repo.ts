@@ -1,0 +1,97 @@
+/**
+ * Funções-coração da resolução de repo (CONTEXT.md §Funções-coração): puras,
+ * agnósticas de UI e de fonte, testáveis isoladas. O serviço `repo.resolveFromCwd`
+ * faz o IO (git/fs/conf) e compõe estas. Issue #3 / ADR 0005.
+ */
+
+/** Identidade do repo no GitHub, ou `local-only` quando o remote não resolve. */
+export type RepoIdentity =
+  | { kind: 'github'; owner: string; name: string }
+  | { kind: 'local-only' };
+
+export type Profile = 'modular' | 'flat';
+
+/** Correções por repo no mapa `path → overrides` do store `conf` (PRD §5). */
+export interface RepoOverride {
+  profile?: Profile;
+  modularBaseDir?: string;
+  owner?: string;
+  name?: string;
+}
+
+/** Repo resolvido do cwd — o que `resolveFromCwd` entrega à UI. */
+export interface ResolvedRepo {
+  root: string;
+  identity: RepoIdentity;
+  profile: Profile;
+  modularBaseDir: string;
+  source: { profile: 'auto' | 'override' };
+}
+
+/** Diretório base modular default; a existência dele na raiz marca `modular`. */
+export const DEFAULT_MODULAR_BASE_DIR = 'app/Contexts';
+
+/**
+ * URL do `git remote origin` → identidade. Parseia ssh (`git@github.com:o/n.git`),
+ * https e `ssh://`/`git://`; host não-GitHub, ausente ou ilegível → `local-only`
+ * (AC 3 / ADR 0005).
+ */
+export function parseOriginUrl(remoteUrl: string | null): RepoIdentity {
+  const url = remoteUrl?.trim();
+  if (!url) return { kind: 'local-only' };
+
+  let host: string;
+  let path: string;
+  const scp = /^[^@]+@([^:/]+):(.+)$/.exec(url);
+  if (scp && !url.includes('://')) {
+    [, host, path] = scp;
+  } else {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { kind: 'local-only' };
+    }
+    host = parsed.hostname;
+    path = parsed.pathname.replace(/^\//, '');
+  }
+
+  if (host.toLowerCase() !== 'github.com') return { kind: 'local-only' };
+  const ownerName = /^([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(path);
+  if (!ownerName) return { kind: 'local-only' };
+  return { kind: 'github', owner: ownerName[1], name: ownerName[2] };
+}
+
+/** Diretório base modular a checar no fs, honrando o override (AC 5). */
+export function modularBaseDirFor(override: RepoOverride): string {
+  return override.modularBaseDir ?? DEFAULT_MODULAR_BASE_DIR;
+}
+
+/**
+ * Funde o auto-detectado com o override do `conf`, aplicando a precedência:
+ * perfil/identidade do override vencem o auto (AC 4–5). Sem `override.profile`,
+ * o perfil é `modular` sse o diretório base existe, senão `flat`. Identidade
+ * manual (`owner/name`) só entra quando o remote não resolveu (`local-only`).
+ */
+export function mergeOverride(input: {
+  parsedIdentity: RepoIdentity;
+  hasModularBaseDir: boolean;
+  override: RepoOverride;
+}): Omit<ResolvedRepo, 'root'> {
+  const { parsedIdentity, hasModularBaseDir, override } = input;
+  const auto: Profile = hasModularBaseDir ? 'modular' : 'flat';
+
+  const identity: RepoIdentity =
+    parsedIdentity.kind === 'github'
+      ? parsedIdentity
+      : override.owner && override.name
+        ? { kind: 'github', owner: override.owner, name: override.name }
+        : { kind: 'local-only' };
+
+  return {
+    identity,
+    profile: override.profile ?? auto,
+    modularBaseDir: modularBaseDirFor(override),
+    source: { profile: override.profile ? 'override' : 'auto' },
+  };
+}
