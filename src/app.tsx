@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
+import type { ResolvedRepo } from './core/repo.js';
 import { WorkingDiffView } from './views/working-diff.js';
 import { PrsView } from './views/prs.js';
 
 type Tab = 'local' | 'prs';
 
-export function App() {
+export function App({ repo }: { repo: ResolvedRepo }) {
   const { exit } = useApp();
   const [tab, setTab] = useState<Tab>('local');
   const [capturing, setCapturing] = useState(false);
@@ -34,7 +35,7 @@ export function App() {
 
       <Box marginTop={1}>
         {tab === 'local' ? (
-          <WorkingDiffView />
+          <WorkingDiffView repo={repo} />
         ) : (
           <PrsView onCapturingChange={setCapturing} />
         )}

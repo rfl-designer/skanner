@@ -62,11 +62,3 @@ export async function resolveFromCwd(cwd: string = process.cwd()): Promise<Resol
   const merged = mergeOverride({ parsedIdentity: parseOriginUrl(url), hasModularBaseDir, override });
   return { root, ...merged };
 }
-
-/**
- * Semente do scaffold (esqueleto andante). Dobrada em `resolveFromCwd`; sai com a
- * fiação do launch (issue #3).
- */
-export async function getRepoRoot(): Promise<string> {
-  return gitRoot(process.cwd());
-}

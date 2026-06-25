@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getRepoRoot, resolveFromCwd } from './repo.js';
+import { resolveFromCwd } from './repo.js';
 
 const run = promisify(execFile);
 
@@ -37,14 +37,6 @@ afterEach(async () => {
   if (previousConfig === undefined) delete process.env.SKANNER_CONFIG_DIR;
   else process.env.SKANNER_CONFIG_DIR = previousConfig;
   await Promise.all(tmpDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
-});
-
-describe('getRepoRoot (semente)', () => {
-  it('resolve a raiz absoluta do repo git (que contém package.json)', async () => {
-    const root = await getRepoRoot();
-    expect(path.isAbsolute(root)).toBe(true);
-    expect(existsSync(path.join(root, 'package.json'))).toBe(true);
-  });
 });
 
 describe('resolveFromCwd', () => {
