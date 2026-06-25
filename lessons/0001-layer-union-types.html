@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lição 0001 · O tipo Layer — uma de 16 camadas</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+  <p class="kicker">Skanner · TypeScript · Lição 0001</p>
+  <h1>O tipo <code>Layer</code>: uma de 16, e nem uma a mais</h1>
+  <p class="subtitle">Seu primeiro tipo de verdade — e o recurso que faz o TypeScript valer a pena.</p>
+
+  <div class="goal">
+    <span class="label">Win de hoje</span>
+    <p style="margin:0.4rem 0 0">
+      Ao final você escreve, sozinho, a assinatura
+      <code>function categorize(path: string): Layer</code> e entende por que o compilador
+      recusa <code>"migraton"</code> (com o typo) <em>antes</em> de o app rodar — algo que o
+      PHP e o JavaScript só descobririam quebrando em produção.
+    </p>
+  </div>
+
+  <p>
+    O coração do Skanner (§4.2 do <a href="../.scratch/skanner/PRD.md">PRD</a>) é pegar o
+    caminho de cada arquivo da PR e dizer a qual <strong>camada</strong> ele pertence — e são
+    exatamente <strong>16 camadas canônicas</strong>, nesta ordem fixa:
+  </p>
+
+  <p>
+    <span class="pill">migration</span><span class="pill">model</span><span class="pill">enum</span><span class="pill">dto</span><span class="pill">policy</span><span class="pill">action</span><span class="pill">service</span><span class="pill">job</span><span class="pill">event</span><span class="pill">listener</span><span class="pill">observer</span><span class="pill">notification</span><span class="pill">livewire</span><span class="pill">blade</span><span class="pill">tests</span><span class="pill">outros</span>
+  </p>
+
+  <p>
+    "Uma de um conjunto fixo de valores" é <em>exatamente</em> o que TypeScript modela melhor
+    que qualquer linguagem que você já usou. Vamos chegar lá em três passos.
+  </p>
+
+  <h2>1. TypeScript é JavaScript + uma camada de tipos que some</h2>
+
+  <p>
+    Você escreve TS, uma ferramenta <strong>checa os tipos</strong> e depois os <strong>apaga</strong>,
+    gerando JavaScript comum que o Electron roda. Os tipos existem só em tempo de escrita/compilação;
+    em runtime não sobra nada deles.
+    <a href="https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes.html">[handbook]</a>
+  </p>
+
+  <div class="aside bridge">
+    <span class="label">Ponte com PHP</span>
+    Em <code>function categorize(string $path): Layer</code>, o PHP confere o type hint
+    <em>quando a função roda</em> — erro vira exceção em runtime. No TS é o oposto: a checagem
+    acontece <em>antes de rodar</em> e some depois. Você troca "quebra em produção" por
+    "sublinhado vermelho no editor".
+  </div>
+
+  <h2>2. Literal type: um tipo que é um único valor</h2>
+
+  <p>
+    Você já viu <code>string</code> (qualquer texto). A virada do TypeScript: um tipo pode ser
+    <em>um valor exato</em>. O tipo <code class="tok-str">"migration"</code> aceita só a string
+    <code>"migration"</code> — nada mais.
+    <a href="https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#literal-types">[handbook]</a>
+  </p>
+
+<pre><code><span class="tok-key">let</span> camada: <span class="tok-str">"migration"</span>;   <span class="tok-com">// tipo = o literal "migration"</span>
+camada = <span class="tok-str">"migration"</span>;        <span class="tok-com">// ok</span>
+camada = <span class="tok-str tok-err">"model"</span>;            <span class="tok-com">// ✗ erro: "model" não é "migration"</span></code></pre>
+
+  <p>Um literal sozinho é inútil. O poder vem de combinar vários.</p>
+
+  <h2>3. Union: <em>uma de</em> várias — o tipo <code>Layer</code></h2>
+
+  <p>
+    A barra <code>|</code> é "ou". Uma <strong>union</strong> de literais diz "o valor é um
+    <em>destes</em>". Damos um nome a ela com <code class="tok-key">type</code> (um
+    <em>type alias</em>):
+  </p>
+
+<pre><code><span class="tok-key">type</span> <span class="tok-type">Layer</span> =
+  | <span class="tok-str">"migration"</span> | <span class="tok-str">"model"</span> | <span class="tok-str">"enum"</span> | <span class="tok-str">"dto"</span>
+  | <span class="tok-str">"policy"</span> | <span class="tok-str">"action"</span> | <span class="tok-str">"service"</span> | <span class="tok-str">"job"</span>
+  | <span class="tok-str">"event"</span> | <span class="tok-str">"listener"</span> | <span class="tok-str">"observer"</span> | <span class="tok-str">"notification"</span>
+  | <span class="tok-str">"livewire"</span> | <span class="tok-str">"blade"</span> | <span class="tok-str">"tests"</span> | <span class="tok-str">"outros"</span>;</code></pre>
+
+  <div class="aside bridge">
+    <span class="label">Ponte com PHP</span>
+    Parece um <code>enum Layer: string</code> do PHP 8.1 — e a intenção é a mesma: um
+    conjunto fechado de valores nomeados. Mas a union de TS é mais leve: é só um
+    <em>tipo</em>, não uma classe; some em runtime; e qualquer string <code>"action"</code>
+    literal já <em>é</em> um <code>Layer</code>, sem <code>Layer::Action-&gt;value</code>.
+  </div>
+
+  <h2>4. A assinatura tipada de <code>categorize</code></h2>
+
+  <p>
+    Agora a função-coração ganha um contrato que o compilador faz cumprir: entra
+    <code>string</code> (o caminho), sai <code>Layer</code> (nunca outra coisa).
+  </p>
+
+<pre><code><span class="tok-key">function</span> categorize(path: <span class="tok-type">string</span>): <span class="tok-type">Layer</span> {
+  <span class="tok-key">if</span> (path.includes(<span class="tok-str">"database/migrations/"</span>)) <span class="tok-key">return</span> <span class="tok-str">"migration"</span>;
+  <span class="tok-key">if</span> (path.includes(<span class="tok-str">"/Models/"</span>))            <span class="tok-key">return</span> <span class="tok-str">"model"</span>;
+  <span class="tok-key">return</span> <span class="tok-str">"outros"</span>;
+}</code></pre>
+
+  <p>Por que isso muda seu dia a dia, comparado a JS puro:</p>
+  <ul>
+    <li><strong>Typo vira erro na hora.</strong> <code>return <span class="tok-err">"migraton"</span>;</code> não compila — não é um <code>Layer</code>.</li>
+    <li><strong>Autocomplete das 16 opções.</strong> Ao digitar <code>return "</code>, o editor lista só camadas válidas.</li>
+    <li><strong>Quem usa o resultado fica seguro.</strong> Um <code>switch (camada)</code> sabe que só existem esses 16 casos.</li>
+  </ul>
+
+  <div class="aside">
+    <span class="label">Detalhe que confunde no começo</span>
+    A ordem das pílulas lá em cima (migration → … → outros) é a <em>ordem de exibição</em> do
+    review, não algo que a union imponha. Uma union não tem ordem; ela só diz <em>quais</em>
+    valores valem. Ordenar as camadas é assunto de outra lição.
+  </div>
+
+  <h2>Pratique (recuperação ativa)</h2>
+  <p>Responda de memória antes de conferir — o esforço de lembrar é o que fixa.</p>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P1</span> Quando o código TypeScript roda como JavaScript no Electron, os tipos…</p>
+    <button class="quiz-option" data-correct>foram apagados antes de executar</button>
+    <button class="quiz-option">são checados durante a execução</button>
+    <button class="quiz-option">viram validações dentro do app</button>
+    <p class="quiz-explain">
+      TS checa os tipos em tempo de compilação e depois os <strong>apaga</strong>: o que roda é
+      JS comum, sem rastro de tipo. Por isso o erro aparece no editor, não em produção.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P2</span> Com <code>type Layer = "migration" | "model" | "tests"</code>, o compilador aceita
+      <code>return "migraton"</code> (com o typo) dentro de <code>categorize</code>?</p>
+    <button class="quiz-option" data-correct>Não: "migraton" não é um Layer</button>
+    <button class="quiz-option">Sim: é uma string, então passa</button>
+    <p class="quiz-explain">
+      O retorno foi tipado como <code>Layer</code>, que só admite os três literais. <code>"migraton"</code>
+      não está na lista → erro de compilação. É justamente o bug que o tipo existe para pegar.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P3</span> Para dizer "o valor é <em>uma de</em> migration ou model", qual declaração está certa?</p>
+    <button class="quiz-option" data-correct><code>type L = "migration" | "model"</code></button>
+    <button class="quiz-option"><code>type L = "migration" &amp; "model"</code></button>
+    <button class="quiz-option"><code>type L = ["migration", "model"]</code></button>
+    <p class="quiz-explain">
+      <code>|</code> é "ou" (union): uma de várias — o que queremos. <code>&amp;</code> seria "e ao mesmo
+      tempo" (impossível para dois literais diferentes: nenhuma string é as duas). Os
+      <code>[colchetes]</code> seriam uma <em>tupla</em> com os dois valores juntos, não um único valor.
+    </p>
+  </div>
+
+  <h2>Faça agora (5 minutos, sem instalar nada)</h2>
+  <ol>
+    <li>Abra a <a href="https://www.typescriptlang.org/play">TypeScript Playground</a>.</li>
+    <li>Cole o tipo <code>Layer</code> completo (as 16) e a função <code>categorize</code> do passo 4.</li>
+    <li>Troque um <code>return</code> por <code>"migraton"</code> e veja o sublinhado vermelho aparecer.</li>
+    <li>Apague o <code>return "outros"</code> final e leia o erro — o compilador vai reclamar que
+      "nem todo caminho retorna um <code>Layer</code>". Pense por que ele tem razão.</li>
+  </ol>
+
+  <div class="footer">
+    <div class="source">
+      <strong>Fonte primária de hoje:</strong>
+      <a href="https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#literal-types">TypeScript Handbook — Literal Types &amp; Unions</a>.
+      Leia a seção "Literal Types" inteira; é curta e é a autoridade no assunto.
+    </div>
+    <p class="ask">
+      Travou em algo, ou quer ver outro exemplo? Eu sou seu professor — só perguntar no chat.
+      Bons pontos de dúvida hoje: "por que não usar <code>enum</code> do TS?", ou "o que é uma tupla?".
+    </p>
+    <div class="nav-links">
+      <span>← (início do curso)</span>
+      <span>Próxima: 0002 — decidir a camada por path (narrowing) →</span>
+    </div>
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

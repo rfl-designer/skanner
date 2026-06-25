@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lição 0003 · Dar forma aos dados — interface e arrays</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+  <p class="kicker">Skanner · TypeScript · Lição 0003</p>
+  <h1>Dar forma aos dados: <code>interface</code> e a lista de arquivos da PR</h1>
+  <p class="subtitle">Onde o <code>Layer</code> para de ser solto e gruda num objeto que o app inteiro vai carregar.</p>
+
+  <div class="goal">
+    <span class="label">Win de hoje</span>
+    <p style="margin:0.4rem 0 0">
+      Você modela um arquivo da PR como um objeto tipado — <code>interface ChangedFile { path; layer }</code> —
+      e transforma uma lista crua de caminhos na lista <strong>classificada</strong> que a tela de
+      review vai exibir. Composição das 3 lições: <code>Layer</code> (0001) + <code>categorize</code>
+      (0002) + a forma de hoje.
+    </p>
+  </div>
+
+  <p>
+    Até agora <code>categorize</code> devolve um <code>Layer</code> solto. Mas a PR não tem "um
+    caminho" — tem <em>dezenas</em>, e de cada um o app precisa guardar <strong>duas</strong> coisas
+    juntas: o caminho <em>e</em> a camada dele. Isso pede um <strong>objeto com forma fixa</strong>.
+  </p>
+
+  <h2>1. <code>interface</code>: dar nome à forma de um objeto</h2>
+
+<pre><code><span class="tok-key">interface</span> <span class="tok-type">ChangedFile</span> {
+  path: <span class="tok-type">string</span>;
+  layer: <span class="tok-type">Layer</span>;
+}</code></pre>
+
+  <p>
+    Isso diz: "um <code>ChangedFile</code> é qualquer objeto que tenha um <code>path</code> string
+    <strong>e</strong> um <code>layer</code> do tipo <code>Layer</code> — nem mais, nem menos". A partir
+    daqui o compilador cobra essa forma em todo lugar que pede um <code>ChangedFile</code>.
+  </p>
+
+  <div class="aside bridge">
+    <span class="label">Ponte com PHP</span>
+    Pense num DTO do Laravel — <code>class ChangedFileData { public string $path; public Layer $layer; }</code>
+    — mas <strong>sem a classe</strong>. Uma <code>interface</code> de TS descreve só a <em>forma</em>:
+    não tem construtor, não tem <code>new</code>, e some em runtime (igual aos outros tipos). É um
+    contrato de formato, não um objeto que você instancia.
+  </div>
+
+  <h2>2. O compilador passa a cobrar a forma</h2>
+
+  <p>Veja as três coisas que ele agora pega sozinho — todas em tempo de escrita:</p>
+
+<pre><code><span class="tok-key">const</span> a: <span class="tok-type">ChangedFile</span> = { path: <span class="tok-str">"x.php"</span> };
+<span class="tok-com">// ✗ falta 'layer'. Property 'layer' is missing.</span>
+
+<span class="tok-key">const</span> b: <span class="tok-type">ChangedFile</span> = { <span class="tok-err">paht</span>: <span class="tok-str">"x.php"</span>, layer: <span class="tok-str">"model"</span> };
+<span class="tok-com">// ✗ typo: 'paht' não existe em ChangedFile.</span>
+
+<span class="tok-key">const</span> c: <span class="tok-type">ChangedFile</span> = { path: <span class="tok-str">"x.php"</span>, layer: <span class="tok-str tok-err">"modle"</span> };
+<span class="tok-com">// ✗ "modle" não é um Layer (herdou a checagem da 0001).</span></code></pre>
+
+  <p>
+    Forma faltando, nome de campo errado, valor fora da union — os três bugs mais comuns ao montar
+    objetos, mortos antes de rodar. Em JS puro, os três passariam e quebrariam lá na frente.
+  </p>
+
+  <h2>3. Uma lista deles: <code>ChangedFile[]</code></h2>
+
+  <p>
+    Os colchetes depois de um tipo significam "um array <em>de</em>". <code>ChangedFile[]</code> é
+    "lista de arquivos com aquela forma" — exatamente o que a tela de review percorre.
+  </p>
+
+<pre><code><span class="tok-key">const</span> paths: <span class="tok-type">string</span>[] = [
+  <span class="tok-str">"database/migrations/2024_create_plans_table.php"</span>,
+  <span class="tok-str">"app/Contexts/Crm/Actions/CreateUser.php"</span>,
+  <span class="tok-str">"tests/Feature/Actions/CreateUserActionTest.php"</span>,
+];</code></pre>
+
+  <h2>4. O win: de caminhos crus → lista classificada</h2>
+
+  <p>
+    Montar <code>{ path, layer }</code> na mão seria bobo — você <em>já</em> tem
+    <code>categorize</code>. Use <code>.map()</code> para transformar cada caminho no objeto:
+  </p>
+
+<pre><code><span class="tok-key">const</span> files: <span class="tok-type">ChangedFile</span>[] = paths.map(<span class="tok-key">function</span> (path) {
+  <span class="tok-key">return</span> { path: path, layer: categorize(path) };
+});
+<span class="tok-com">// files agora é a lista tipada que a UI vai agrupar e exibir.</span></code></pre>
+
+  <div class="aside bridge">
+    <span class="label">Buraco de JS preenchido — <code>.map()</code></span>
+    <code>.map(fn)</code> percorre um array e devolve um <strong>novo</strong> array com o resultado
+    de <code>fn</code> em cada item (o original não muda). É o <code>array_map()</code> do PHP, ou o
+    <code>-&gt;map()</code> das Collections do Laravel. Aqui: cada <code>string</code> vira um
+    <code>ChangedFile</code>, então <code>string[]</code> → <code>ChangedFile[]</code>. O compilador
+    <em>infere</em> esse tipo de saída sozinho — e ainda confere que ele bate com o que você anotou.
+  </div>
+
+  <div class="aside">
+    <span class="label">A forma curta (vai aparecer muito no React)</span>
+    O mesmo <code>.map</code> com <em>arrow function</em>: <code>paths.map(path =&gt; ({ path, layer: categorize(path) }))</code>.
+    Dois detalhes: <code>{ path }</code> é atalho para <code>{ path: path }</code> (mesmo nome);
+    e os <code>(parênteses)</code> em volta do objeto são <strong>obrigatórios</strong> — sem eles o
+    <code>{ }</code> vira bloco de código, não objeto. Por hoje, fique com a forma longa acima; só
+    saiba reconhecer a curta.
+  </div>
+
+  <h2>Pratique (recuperação ativa)</h2>
+  <p>Responda de memória antes de revelar.</p>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P1</span> Com <code>interface ChangedFile { path: string; layer: Layer }</code>,
+      o objeto <code>{ path: "x.php" }</code> (sem layer) compila como <code>ChangedFile</code>?</p>
+    <button class="quiz-option" data-correct>Não — a propriedade layer está faltando</button>
+    <button class="quiz-option">Sim — toda propriedade é opcional</button>
+    <p class="quiz-explain">
+      A interface lista <code>path</code> <strong>e</strong> <code>layer</code> como obrigatórias. Faltou
+      <code>layer</code> → erro "Property 'layer' is missing". Para tornar um campo opcional, usa-se
+      <code>layer?: Layer</code> — mas aí é decisão sua, não o padrão.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P2</span> O que <code>string[]</code> significa?</p>
+    <button class="quiz-option" data-correct>Um array de valores do tipo string</button>
+    <button class="quiz-option">Uma string com colchetes no meio</button>
+    <button class="quiz-option">Uma string de tamanho fixo só</button>
+    <p class="quiz-explain">
+      <code>T[]</code> = "array de <code>T</code>". <code>string[]</code> é uma lista de strings;
+      <code>ChangedFile[]</code> é uma lista de objetos com aquela forma. Os colchetes vêm
+      <em>depois</em> do tipo do elemento.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P3</span> Uma <code>interface</code> em TypeScript serve para…</p>
+    <button class="quiz-option" data-correct>dar um nome à forma de um objeto</button>
+    <button class="quiz-option">criar uma classe com seu construtor</button>
+    <button class="quiz-option">validar os valores quando o app roda</button>
+    <p class="quiz-explain">
+      Interface descreve <strong>formato</strong> e nada mais: sem classe, sem <code>new</code>, e
+      <strong>some em runtime</strong> (não valida nada quando o app roda — isso seria papel de um
+      teste ou de uma checagem manual). É contrato em tempo de compilação.
+    </p>
+  </div>
+
+  <h2>Faça agora (5 minutos)</h2>
+  <ol>
+    <li>Na <a href="https://www.typescriptlang.org/play">Playground</a>, junte tudo: <code>type Layer</code> +
+      <code>categorize</code> (das 0001–0002) + a <code>interface ChangedFile</code> + o <code>paths</code> +
+      o <code>.map</code> de hoje.</li>
+    <li>Dê <code>console.log(files)</code> e confira na aba Logs que cada item tem <code>path</code> e o
+      <code>layer</code> certo.</li>
+    <li><strong>Provoque os 3 erros do passo 2:</strong> remova <code>layer</code> de um objeto, troque
+      <code>path</code> por <code>paht</code>, ponha um <code>layer: "modle"</code>. Leia cada mensagem —
+      é o compilador trabalhando por você.</li>
+    <li>Passe o mouse sobre <code>files</code> e veja o TS dizer <code>ChangedFile[]</code> — tipo que
+      <em>ele</em> inferiu, você não precisou repetir.</li>
+  </ol>
+
+  <div class="footer">
+    <div class="source">
+      <strong>Fonte primária de hoje:</strong>
+      <a href="https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#object-types">TypeScript Handbook — Object Types</a>
+      (e a seção logo abaixo sobre propriedades opcionais com <code>?</code>). É a mesma página das 0001;
+      agora você lê a parte de objetos.
+    </div>
+    <p class="ask">
+      Dúvidas boas para hoje: "qual a diferença entre <code>interface</code> e <code>type</code> para
+      objetos?" (resposta curta: aqui dá no mesmo; difere em casos avançados), ou "como deixo um campo
+      opcional?" (o <code>?</code> — vamos precisar dele no modelo de repo do PRD: <code>owner?: string</code>).
+      Pergunte no chat.
+    </p>
+    <div class="nav-links">
+      <span>← 0002 — O corpo de categorize</span>
+      <span>Próxima: 0004 — agrupar em Feature → Camada (a árvore) →</span>
+    </div>
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

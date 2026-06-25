@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lição 0004 · Agrupar por camada — Record&lt;Layer, ChangedFile[]&gt;</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+  <p class="kicker">Skanner · TypeScript · Lição 0004</p>
+  <h1>Agrupar por camada: <code>Record&lt;Layer, ChangedFile[]&gt;</code></h1>
+  <p class="subtitle">Onde a lista plana da 0003 vira a árvore que a navegação lateral da tela de review percorre.</p>
+
+  <div class="goal">
+    <span class="label">Win de hoje</span>
+    <p style="margin:0.4rem 0 0">
+      Você pega a <code>ChangedFile[]</code> plana (0003) e a <strong>indexa por camada</strong> —
+      um balde de arquivos para cada <code>Layer</code>. O tipo disso é
+      <code>Record&lt;Layer, ChangedFile[]&gt;</code>: sua <strong>primeira estrutura aninhada</strong>,
+      e exatamente o que a navegação <em>Feature → Camada → Arquivo</em> do PRD (§6) consome.
+    </p>
+  </div>
+
+  <p>
+    A PR vira uma lista plana de <code>ChangedFile</code> — ótimo para guardar, péssimo para
+    <em>exibir</em>. A tela não mostra "47 arquivos em ordem"; ela mostra <strong>seções por camada</strong>:
+    as migrations juntas, depois os models juntos, e assim por diante. Para isso o app precisa de
+    <strong>baldes</strong>: cada <code>Layer</code> apontando para os seus arquivos.
+  </p>
+
+  <h2>1. <code>Record&lt;K, V&gt;</code>: um dicionário tipado</h2>
+
+<pre><code><span class="tok-key">type</span> <span class="tok-type">GroupedByLayer</span> = <span class="tok-type">Record</span>&lt;<span class="tok-type">Layer</span>, <span class="tok-type">ChangedFile</span>[]&gt;;</code></pre>
+
+  <p>
+    Leia em voz alta: "para <strong>cada</strong> <code>Layer</code> (a chave <code>K</code>),
+    uma <code>ChangedFile[]</code> (o valor <code>V</code>)". <code>Record</code> é o jeito do TS de
+    descrever um objeto-dicionário: você diz o tipo das <strong>chaves</strong> e o tipo dos
+    <strong>valores</strong>, de uma vez.
+  </p>
+
+  <div class="aside bridge">
+    <span class="label">Ponte com PHP</span>
+    É o array associativo do PHP — <code>array&lt;string, ChangedFile[]&gt;</code> — mas com uma trava
+    que o PHP não te dá: aqui a <strong>chave não é uma string qualquer</strong>, é um
+    <code>Layer</code>. Tentar usar <code>groups["modle"]</code> é erro de compilação, igual a
+    <code>"modle"</code> ter sido recusado lá na 0001. A union <code>Layer</code> continua trabalhando
+    por você — agora como <em>conjunto de chaves válidas</em>.
+  </div>
+
+  <h2>2. O compilador exige <em>todas</em> as camadas</h2>
+
+  <p>
+    Esta é a parte que conecta com a sua pergunta sobre exaustividade. Como a chave é <code>Layer</code>
+    (as 16 camadas), um objeto desse tipo precisa ter as <strong>16 chaves</strong> — faltou uma, erro:
+  </p>
+
+<pre><code><span class="tok-key">const</span> groups: <span class="tok-type">GroupedByLayer</span> = {
+  migration: [],
+  model: [],
+  action: [],
+  tests: [],
+  <span class="tok-com">// … e as outras 12. Se você parar aqui:</span>
+};
+<span class="tok-com">// ✗ Property 'enums' is missing in type '{ migration: …; }'</span>
+<span class="tok-com">//   but required in type 'Record&lt;Layer, ChangedFile[]&gt;'.</span></code></pre>
+
+  <p>
+    O mesmo mecanismo que recusou <code>"modle"</code> agora <strong>garante que nenhuma camada
+    fique de fora</strong>. Amanhã você adiciona uma camada nova ao <code>Layer</code> — e o
+    compilador acende em todo <code>Record&lt;Layer, …&gt;</code> que esqueceu de tratá-la. Exaustividade
+    de graça: o tipo não te deixa esquecer um caso.
+  </p>
+
+  <h2>3. Construir os baldes: <code>for…of</code></h2>
+
+  <p>
+    Com os baldes vazios prontos, basta percorrer os arquivos e empurrar cada um no balde da sua
+    camada:
+  </p>
+
+<pre><code><span class="tok-key">for</span> (<span class="tok-key">const</span> file <span class="tok-key">of</span> files) {
+  groups[file.layer].push(file);
+}
+<span class="tok-com">// groups.migration → [todas as migrations], groups.model → [todos os models], …</span></code></pre>
+
+  <p>
+    Repare em <code>groups[file.layer]</code>: <code>file.layer</code> é um <code>Layer</code> (veio da
+    <code>interface ChangedFile</code> da 0003), então o TS <strong>sabe</strong> que essa chave existe e
+    que o valor é uma <code>ChangedFile[]</code> — por isso o <code>.push(file)</code> é aceito sem
+    reclamação e sem checagem de <code>undefined</code>. A inicialização do passo 2 (todos os baldes
+    como <code>[]</code>) é o que torna isso seguro: nunca há balde faltando.
+  </p>
+
+  <div class="aside bridge">
+    <span class="label">Buraco de JS preenchido — <code>for…of</code></span>
+    <code>for (const x of lista)</code> percorre os <strong>valores</strong> de um array, um por vez —
+    é o <code>foreach ($lista as $x)</code> do PHP. (Cuidado: existe também <code>for…in</code>, que
+    percorre <em>chaves/índices</em> — não é o que queremos aqui.) E <code>.push(item)</code> adiciona
+    no fim do array, como <code>$arr[] = $item</code>. Em PHP o todo seria
+    <code>$groups[$file->layer][] = $file;</code> — a diferença é que aqui o compilador confere a chave.
+  </div>
+
+  <h2>4. Por que "aninhada", e o que vem depois</h2>
+
+  <p>
+    Você acabou de montar uma estrutura de <strong>dois níveis</strong>: um objeto cujos valores são,
+    eles mesmos, arrays de objetos (<code>Layer → ChangedFile[]</code>). Esse é o caso do repo
+    <strong>flat</strong> do PRD (§4): só <code>Camada → [arquivos]</code>, sem feature.
+  </p>
+  <p>
+    No repo <strong>modular</strong>, a árvore ganha mais um andar por cima — <code>Feature → Camada →
+    [arquivos]</code>. A forma disso é só envolver o de hoje:
+    <code>Record&lt;string, Record&lt;Layer, ChangedFile[]&gt;&gt;</code> (feature → baldes por camada). É para
+    onde a 0005 vai. Hoje você fincou o nível de dentro.
+  </p>
+
+  <h2>Pratique (recuperação ativa)</h2>
+  <p>Responda de memória antes de revelar.</p>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P1</span> O que <code>Record&lt;Layer, ChangedFile[]&gt;</code> descreve?</p>
+    <button class="quiz-option" data-correct>Um objeto onde cada chave é um Layer e cada valor é uma lista de ChangedFile</button>
+    <button class="quiz-option">Uma lista de Layers</button>
+    <button class="quiz-option">Um único ChangedFile com um campo Layer</button>
+    <p class="quiz-explain">
+      <code>Record&lt;K, V&gt;</code> = "para cada chave do tipo <code>K</code>, um valor do tipo <code>V</code>".
+      Aqui <code>K = Layer</code> e <code>V = ChangedFile[]</code> → um dicionário camada → arquivos daquela
+      camada. É o balde por camada que a tela percorre.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P2</span> Num <code>Record&lt;Layer, ChangedFile[]&gt;</code>, o que acontece se
+      o objeto literal esquecer uma das camadas?</p>
+    <button class="quiz-option" data-correct>Erro de compilação — a chave que falta é obrigatória</button>
+    <button class="quiz-option">Nada — chaves de Record são opcionais</button>
+    <button class="quiz-option">A chave é criada automaticamente como undefined</button>
+    <p class="quiz-explain">
+      Como a chave é a union <code>Layer</code>, o tipo exige <strong>todas</strong> as camadas presentes.
+      Faltou uma → "Property '…' is missing". É a mesma checagem que recusa um valor fora da union —
+      agora garantindo exaustividade: nenhuma camada fica esquecida.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P3</span> Por que <code>groups[file.layer].push(file)</code> não exige
+      checar se o balde existe?</p>
+    <button class="quiz-option" data-correct>Porque file.layer é um Layer e os baldes foram inicializados para todo Layer</button>
+    <button class="quiz-option">Porque o TS cria o balde na hora se não existir</button>
+    <button class="quiz-option">Porque .push ignora valores undefined</button>
+    <p class="quiz-explain">
+      <code>file.layer</code> tem tipo <code>Layer</code> (veio da <code>interface ChangedFile</code>), e o
+      <code>Record&lt;Layer, …&gt;</code> garante um valor para <em>todo</em> <code>Layer</code>. Logo o TS sabe que
+      <code>groups[file.layer]</code> é uma <code>ChangedFile[]</code> de verdade — nunca <code>undefined</code>.
+      A inicialização com baldes vazios é o que sustenta essa garantia.
+    </p>
+  </div>
+
+  <h2>Faça agora (5 minutos)</h2>
+  <ol>
+    <li>Na <a href="https://www.typescriptlang.org/play">Playground</a>, parta do que você já tem
+      (<code>Layer</code> + <code>categorize</code> + <code>interface ChangedFile</code> + a lista
+      <code>files</code> da 0003).</li>
+    <li>Crie <code>const groups: Record&lt;Layer, ChangedFile[]&gt; = { … }</code> com <strong>todas</strong> as
+      camadas inicializadas em <code>[]</code>. Depois o <code>for…of</code> empurrando cada arquivo.</li>
+    <li><strong>Provoque a exaustividade:</strong> apague uma das chaves do literal e leia o erro
+      "Property '…' is missing". Devolva a chave e o erro some.</li>
+    <li>Tente <code>groups["modle"]</code> — veja o TS recusar uma chave que não é um <code>Layer</code>.</li>
+    <li><code>console.log(groups)</code> e confira na aba Logs que cada camada tem os arquivos certos
+      (e as vazias ficaram <code>[]</code>).</li>
+  </ol>
+
+  <div class="footer">
+    <div class="source">
+      <strong>Fonte primária de hoje:</strong>
+      <a href="https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type">TypeScript Handbook — <code>Record&lt;Keys, Type&gt;</code></a>.
+      É o primeiro <em>utility type</em> da missão; outros (<code>Partial</code>, <code>Pick</code>) virão
+      quando o app pedir.
+    </div>
+    <p class="ask">
+      Dúvidas boas para hoje: "e se eu quiser começar com baldes vazios sem digitar as 16 chaves?"
+      (resposta-isca: dá pra montar com um loop sobre a lista de camadas — mas aí o tipo afrouxa para
+      <code>Partial&lt;Record&lt;…&gt;&gt;</code>; vale o trade-off?), ou "qual a diferença entre <code>Record</code> e
+      um <code>Map</code>?". Pergunte no chat.
+    </p>
+    <div class="nav-links">
+      <span>← 0003 — Dar forma aos dados</span>
+      <span>Próxima: 0005 — Feature por cima (a árvore completa) + ordenar →</span>
+    </div>
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

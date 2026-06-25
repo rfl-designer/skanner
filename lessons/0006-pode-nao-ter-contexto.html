@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lição 0006 · Pode não ter contexto — string | null</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+  <p class="kicker">Skanner · TypeScript · Lição 0006</p>
+  <h1>Pode não ter contexto: <code>string | null</code> e a checagem que o compilador exige</h1>
+  <p class="subtitle">Onde uma função admite "não sei" como resposta — e o TS te obriga a tratar esse caso.</p>
+
+  <div class="goal">
+    <span class="label">Win de hoje</span>
+    <p style="margin:0.4rem 0 0">
+      Você escreve a assinatura de <code>resolveContext</code> (PRD §4.1): dado um arquivo, qual
+      <strong>feature</strong> (contexto) ele pertence? Diferente de <code>categorize</code>, a resposta
+      pode ser <strong>nenhuma</strong> — o balde "Sem contexto". Isso é <code>string | null</code>, e a
+      grande sacada de hoje: com <code>null</code> no tipo, o compilador <strong>não te deixa usar o
+      valor sem antes checar se ele existe</strong>.
+    </p>
+  </div>
+
+  <p>
+    O <code>categorize</code> (0002) sempre tinha resposta — o balde <code>"outros"</code> fechava o furo,
+    então o retorno era um <code>Layer</code> cheio, sempre. <code>resolveContext</code> é diferente:
+    muitos arquivos (config, CI, uma migration órfã) <strong>não têm</strong> feature, e o PRD manda jogá-los
+    num balde "Sem contexto". A função precisa poder dizer <em>"não achei"</em> — e o tipo tem que
+    refletir isso.
+  </p>
+
+  <h2>1. Por que <code>string</code>, e não uma union como <code>Layer</code>?</h2>
+
+  <p>
+    As camadas são um <strong>conjunto fechado</strong>: as 16 são conhecidas de antemão → union de
+    literais (0001). Já os contextos são um conjunto <strong>aberto</strong>: <code>Crm</code>,
+    <code>Billing</code>, <code>Activities</code>… qualquer pasta nova em <code>app/Contexts/</code> é um
+    contexto válido, e você não tem como listá-los todos antes. Conjunto aberto de textos →
+    <code>string</code>.
+  </p>
+
+  <div class="aside">
+    <span class="label">A régua: union ou <code>string</code>?</span>
+    Conjunto <strong>fechado e conhecido</strong> (camadas, perfil <code>"modular" | "flat"</code>) → union
+    de literais, e o compilador cobra os valores. Conjunto <strong>aberto</strong> (nome de contexto, título
+    da PR) → <code>string</code>. Escolher errado aqui é o erro de modelagem nº 1 de quem vem de
+    linguagens sem union.
+  </div>
+
+  <h2>2. A assinatura: o retorno admite ausência</h2>
+
+<pre><code><span class="tok-key">function</span> resolveContext(path: <span class="tok-type">string</span>): <span class="tok-type">string</span> | <span class="tok-key">null</span> {
+  <span class="tok-com">// devolve o nome do contexto, ou null quando não há feature ("Sem contexto")</span>
+}</code></pre>
+
+  <p>
+    <code>string | null</code> é uma union (0001) — "uma de: um texto, <em>ou</em> o valor
+    <code>null</code>". <code>null</code> é o jeito do JS de dizer "vazio de propósito, ausência de valor".
+    Pôr <code>null</code> <em>no tipo</em> é uma promessa honesta: "essa função às vezes não tem resposta,
+    e eu te avisei".
+  </p>
+
+  <div class="aside bridge">
+    <span class="label">Ponte com PHP</span>
+    É o tipo <strong>nullable</strong> do PHP: <code>function resolveContext(string $path): ?string</code>.
+    O <code>?string</code> do PHP é exatamente <code>string | null</code> do TS. A diferença grande vem no
+    passo 3: o TS <em>te força</em> a tratar o <code>null</code> antes de usar o valor — o PHP deixa você
+    esquecer e explodir em runtime com "Call to a member function on null".
+  </div>
+
+  <h2>3. O win: o compilador não deixa você ignorar o <code>null</code></h2>
+
+  <p>
+    Com <code>strictNullChecks</code> ligado (o padrão na Playground), o resultado de
+    <code>resolveContext</code> <strong>não é</strong> uma <code>string</code> usável de cara — é
+    "<code>string</code> ou <code>null</code>", e o TS exige que você decida o que fazer no caso vazio:
+  </p>
+
+<pre><code><span class="tok-key">const</span> ctx = resolveContext(file.path);
+
+console.log(ctx.toUpperCase());
+<span class="tok-com">// ✗ 'ctx' is possibly 'null'. (null não tem .toUpperCase → o app quebraria)</span></code></pre>
+
+  <p>Você <em>estreita</em> o tipo tratando o caso vazio — o mesmo narrowing da 0002, agora sobre <code>null</code>:</p>
+
+<pre><code><span class="tok-key">const</span> ctx = resolveContext(file.path);
+
+<span class="tok-key">if</span> (ctx === <span class="tok-key">null</span>) {
+  <span class="tok-com">// arquivo vai para o balde "Sem contexto" (PRD §4.1, regra 4)</span>
+} <span class="tok-key">else</span> {
+  <span class="tok-com">// aqui o TS SABE que ctx é string — pode usar ctx.toUpperCase() sem medo</span>
+  console.log(ctx.toUpperCase());
+}</code></pre>
+
+  <p>
+    Dentro do <code>else</code>, o TS <strong>removeu o <code>null</code></strong> do tipo: ele provou, lendo o
+    seu <code>if</code>, que ali só sobra <code>string</code>. O "possivelmente null" some sozinho. É o
+    compilador te empurrando para tratar o caso vazio <em>antes</em> de rodar — o bug de null morto na
+    escrita.
+  </p>
+
+  <h2>4. Um corpo de partida (regra 1: path direto)</h2>
+
+  <p>Para a função não ficar vazia, a primeira regra do §4.1 — path em <code>app/Contexts/&lt;Ctx&gt;/</code>:</p>
+
+<pre><code><span class="tok-key">function</span> resolveContext(path: <span class="tok-type">string</span>): <span class="tok-type">string</span> | <span class="tok-key">null</span> {
+  <span class="tok-key">const</span> marker = <span class="tok-str">"app/Contexts/"</span>;
+  <span class="tok-key">if</span> (path.includes(marker)) {
+    <span class="tok-key">const</span> resto = path.split(marker)[1];   <span class="tok-com">// "Crm/Actions/CreateUser.php"</span>
+    <span class="tok-key">return</span> resto.split(<span class="tok-str">"/"</span>)[0];            <span class="tok-com">// "Crm"</span>
+  }
+  <span class="tok-key">return</span> <span class="tok-key">null</span>;                              <span class="tok-com">// ainda não resolveu → "Sem contexto" por ora</span>
+}</code></pre>
+
+  <div class="aside bridge">
+    <span class="label">Buraco de JS preenchido — <code>.split()</code></span>
+    <code>"a/b/c".split("/")</code> quebra a string nos separadores e devolve um array:
+    <code>["a", "b", "c"]</code> — é o <code>explode("/", $s)</code> do PHP. Pegando o
+    <code>[0]</code> você fica com o primeiro pedaço. Aqui: corta no <code>"app/Contexts/"</code>, pega o
+    que vem depois, e o primeiro segmento é o nome do contexto.
+  </div>
+
+  <p>
+    Falta as regras 2–4 (path de teste, ponte por nome, balde) — e a regra 3 precisa de uma peça nova:
+    <em>o conjunto de contextos já achados na PR</em>. Isso é a 0007 (e traz o tipo <code>Set</code>).
+    Hoje o que importa é o <strong>tipo de retorno honesto</strong> e a checagem de <code>null</code>.
+  </p>
+
+  <h2>Pratique (recuperação ativa)</h2>
+  <p>Responda de memória antes de revelar.</p>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P1</span> Por que o contexto é <code>string</code> e a camada era uma
+      union de literais (<code>Layer</code>)?</p>
+    <button class="quiz-option" data-correct>Camadas são um conjunto fechado e conhecido; contextos são um conjunto aberto (qualquer nome de pasta)</button>
+    <button class="quiz-option">Porque string é mais rápido que union</button>
+    <button class="quiz-option">Porque contexto nunca se repete</button>
+    <p class="quiz-explain">
+      Union de literais serve quando você conhece <em>todos</em> os valores de antemão (as 16 camadas).
+      Contextos surgem livremente (<code>Crm</code>, <code>Billing</code>, …), conjunto aberto → <code>string</code>.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P2</span> Uma função retorna <code>string | null</code>. Você pode chamar
+      <code>resultado.toUpperCase()</code> direto?</p>
+    <button class="quiz-option" data-correct>Não — o TS acusa "possibly null"; é preciso tratar o caso null primeiro</button>
+    <button class="quiz-option">Sim — null vira string vazia automaticamente</button>
+    <button class="quiz-option">Sim — só dá erro se realmente vier null em runtime</button>
+    <p class="quiz-explain">
+      Com <code>strictNullChecks</code> (padrão na Playground), o valor é "string <em>ou</em> null", e
+      <code>null</code> não tem <code>.toUpperCase()</code>. O compilador exige que você trate o vazio
+      <strong>antes</strong> — o bug morre na escrita, não em runtime (diferente do PHP).
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P3</span> Depois de <code>if (ctx === null) { … } else { … }</code>, qual o
+      tipo de <code>ctx</code> dentro do <code>else</code>?</p>
+    <button class="quiz-option" data-correct>string — o TS removeu o null porque o if já tratou esse caso</button>
+    <button class="quiz-option">string | null ainda — o tipo nunca muda</button>
+    <button class="quiz-option">null — porque o if testou null</button>
+    <p class="quiz-explain">
+      Isso é <strong>narrowing</strong> (0002): o TS lê o fluxo e, no <code>else</code>, sabe que
+      <code>null</code> já foi descartado — sobra <code>string</code>. Por isso lá dentro o
+      <code>.toUpperCase()</code> é aceito sem reclamação.
+    </p>
+  </div>
+
+  <h2>Faça agora (5 minutos)</h2>
+  <ol>
+    <li>Na <a href="https://www.typescriptlang.org/play">Playground</a> (confira que <code>strict</code> está
+      ligado — é o padrão), escreva <code>resolveContext(path: string): string | null</code> com o corpo
+      da regra 1.</li>
+    <li>Teste com <code>"app/Contexts/Crm/Actions/CreateUser.php"</code> (deve dar <code>"Crm"</code>) e com
+      <code>"database/migrations/2024_create_plans_table.php"</code> (deve dar <code>null</code>).</li>
+    <li><strong>Provoque o win:</strong> faça <code>resolveContext(p).toUpperCase()</code> direto e leia o erro
+      "<code>'…' is possibly 'null'</code>".</li>
+    <li>Conserte com <code>if (ctx === null) … else …</code> e confirme: passando o mouse sobre <code>ctx</code>
+      dentro do <code>else</code>, o TS mostra só <code>string</code>.</li>
+  </ol>
+
+  <div class="footer">
+    <div class="source">
+      <strong>Fonte primária de hoje:</strong>
+      <a href="https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#null-and-undefined">TypeScript Handbook — null and undefined</a>
+      e <a href="https://www.typescriptlang.org/docs/handbook/2/narrowing.html">Narrowing</a> (o mesmo da 0002,
+      agora aplicado a <code>null</code>). Existe também <code>undefined</code> — primo de <code>null</code>;
+      a diferença prática fica para quando o app encostar nela.
+    </div>
+    <p class="ask">
+      Dúvidas boas para hoje: "qual a diferença entre <code>null</code> e <code>undefined</code>?", ou
+      "isso é a mesma coisa que o campo opcional <code>owner?: string</code> do modelo de repo (§5)?"
+      (resposta curta: parentes — <code>?</code> gera <code>| undefined</code>; vamos amarrar isso). Pergunte no chat.
+    </p>
+    <div class="nav-links">
+      <span>← 0005 — Ordenar para exibir</span>
+      <span>Próxima: 0007 — regras 2–4 de resolveContext + o tipo Set →</span>
+    </div>
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

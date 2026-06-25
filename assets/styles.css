@@ -1,0 +1,239 @@
+/* Skanner · Curso de TypeScript — folha de estilo compartilhada
+   Componente reusável: TODA lição faz <link> para este arquivo.
+   Estética: Tufte — tipografia serifada legível, medida estreita, cor contida, imprime bem. */
+
+:root {
+  --ink:      #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --paper:    #fffdf8;
+  --rule:     #e3ddcf;
+  --accent:   #8a3b12;   /* terracota — links, marcadores */
+  --accent-2: #2f5d50;   /* verde-pinheiro — acertos, "feature" */
+  --warn:     #9a1b1b;   /* erros do compilador */
+  --code-bg:  #f4efe4;
+  --pill-bg:  #ece5d6;
+  --measure:  42rem;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 19px; }
+
+body {
+  margin: 0 auto;
+  max-width: var(--measure);
+  padding: 4rem 1.5rem 8rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* --- Cabeçalho da lição --- */
+.kicker {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 0.6rem;
+}
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  margin: 0 0 0.4rem;
+  font-weight: 600;
+}
+.subtitle {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  font-style: italic;
+  margin: 0 0 1.4rem;
+}
+h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 2.6rem 0 0.6rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--rule);
+}
+h3 { font-size: 1.08rem; font-weight: 600; margin: 1.6rem 0 0.4rem; }
+
+p { margin: 0.8rem 0; }
+a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(138,59,18,0.3); }
+a:hover { border-bottom-color: var(--accent); }
+
+strong { font-weight: 650; }
+
+/* --- Código --- */
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 1rem 0;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* realce mínimo dentro de <pre>: use spans com estas classes */
+.tok-key   { color: #7a3ea8; }            /* type, function, const, return */
+.tok-str   { color: var(--accent-2); }    /* "literais de string" */
+.tok-type  { color: #1d4e89; }            /* nomes de tipo */
+.tok-com   { color: #9a9484; font-style: italic; }
+.tok-err   { text-decoration: wavy underline var(--warn); text-decoration-skip-ink: none; }
+
+/* --- Aside / callout (espírito de sidenote Tufte) --- */
+.aside {
+  border-left: 3px solid var(--rule);
+  padding: 0.2rem 0 0.2rem 1rem;
+  margin: 1.2rem 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+.aside.bridge { border-left-color: var(--accent); }
+.aside .label {
+  display: block;
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.2rem;
+}
+
+/* --- Pílulas de camada (vocabulário do Skanner) --- */
+.pill {
+  display: inline-block;
+  font-family: ui-monospace, monospace;
+  font-size: 0.74rem;
+  background: var(--pill-bg);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  margin: 0.15rem 0.15rem 0.15rem 0;
+  white-space: nowrap;
+}
+
+/* --- Objetivo / win do dia --- */
+.goal {
+  background: #fbf6ea;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  margin: 1.4rem 0;
+}
+.goal .label {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent-2);
+}
+
+/* ============ Componente Quiz (ver assets/quiz.js) ============ */
+.quiz {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1.1rem 1.2rem;
+  margin: 1.4rem 0;
+  background: #fffefb;
+}
+.quiz .q {
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+.quiz .q .num {
+  font-family: ui-monospace, monospace;
+  color: var(--accent);
+  font-size: 0.8rem;
+  margin-right: 0.4rem;
+}
+.quiz .quiz-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.95rem;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 0.55rem 0.8rem;
+  margin: 0.4rem 0;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.quiz .quiz-option:hover:not(:disabled) { border-color: var(--accent); }
+.quiz .quiz-option:disabled { cursor: default; }
+.quiz .quiz-option.correct {
+  border-color: var(--accent-2);
+  background: #eef6f1;
+}
+.quiz .quiz-option.wrong {
+  border-color: var(--warn);
+  background: #fbeeee;
+}
+.quiz .quiz-option .mark { float: right; font-weight: 700; }
+.quiz .quiz-option.correct .mark { color: var(--accent-2); }
+.quiz .quiz-option.wrong .mark { color: var(--warn); }
+
+.quiz .quiz-explain {
+  display: none;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--rule);
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+.quiz .quiz-explain.show { display: block; }
+.quiz .quiz-reset {
+  font: inherit; font-size: 0.8rem;
+  background: none; border: none; color: var(--accent);
+  cursor: pointer; padding: 0; margin-top: 0.6rem;
+  border-bottom: 1px solid rgba(138,59,18,0.3);
+}
+
+/* --- Rodapé: próximos passos, fonte primária, link ao professor --- */
+.footer {
+  margin-top: 3rem;
+  border-top: 2px solid var(--rule);
+  padding-top: 1.2rem;
+  font-size: 0.95rem;
+}
+.footer h2 { border: none; padding: 0; margin: 1.2rem 0 0.4rem; font-size: 1.1rem; }
+.source {
+  background: #fbf6ea;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin: 0.8rem 0;
+}
+.ask {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+.nav-links {
+  display: flex;
+  justify-content: space-between;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  margin-top: 1.6rem;
+}
+
+/* --- Impressão --- */
+@media print {
+  html { font-size: 12pt; }
+  body { max-width: none; padding: 0; background: #fff; }
+  .quiz-reset, .nav-links { display: none; }
+  .quiz-explain { display: block !important; }
+  pre, .quiz, .goal, .source { break-inside: avoid; }
+  a { color: var(--ink); border: none; }
+}

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lição 0002 · O corpo de categorize — ordem e a garantia do compilador</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+  <p class="kicker">Skanner · TypeScript · Lição 0002</p>
+  <h1>O corpo de <code>categorize</code>: ordem importa, e o compilador só te cobre até certo ponto</h1>
+  <p class="subtitle">A lição mais valiosa do curso: descobrir <em>onde</em> os tipos param de te proteger.</p>
+
+  <div class="goal">
+    <span class="label">Win de hoje</span>
+    <p style="margin:0.4rem 0 0">
+      Você escreve o corpo de <code>categorize</code> com a regra "tests primeiro" (§4.2 do
+      <a href="../.scratch/skanner/PRD.md">PRD</a>), entende o erro <em>"nem todo caminho
+      retorna um valor"</em>, e — o mais importante — sente na pele a fronteira: o compilador
+      garante que você devolve <strong>algum</strong> <code>Layer</code>, nunca que é o
+      <strong>certo</strong>. Esse é o trabalho dos testes.
+    </p>
+  </div>
+
+  <p>
+    Na <a href="0001-layer-union-types.html">Lição 0001</a> você tipou a <em>casca</em>:
+    <code>categorize(path: string): Layer</code>. Hoje preenchemos o <em>miolo</em> — uma
+    sequência de regras, cada uma checando o caminho e devolvendo um literal de camada.
+  </p>
+
+  <h2>1. A regra: primeira que casa vence</h2>
+
+<pre><code><span class="tok-key">function</span> categorize(path: <span class="tok-type">string</span>): <span class="tok-type">Layer</span> {
+  <span class="tok-key">if</span> (path.endsWith(<span class="tok-str">"Test.php"</span>))            <span class="tok-key">return</span> <span class="tok-str">"tests"</span>;
+  <span class="tok-key">if</span> (path.includes(<span class="tok-str">"/Actions/"</span>))          <span class="tok-key">return</span> <span class="tok-str">"action"</span>;
+  <span class="tok-key">if</span> (path.includes(<span class="tok-str">"database/migrations/"</span>)) <span class="tok-key">return</span> <span class="tok-str">"migration"</span>;
+  <span class="tok-key">if</span> (path.includes(<span class="tok-str">"/Models/"</span>))            <span class="tok-key">return</span> <span class="tok-str">"model"</span>;
+  <span class="tok-key">return</span> <span class="tok-str">"outros"</span>;                          <span class="tok-com">// balde final</span>
+}</code></pre>
+
+  <div class="aside bridge">
+    <span class="label">Buraco de JS preenchido</span>
+    <code>path.endsWith("Test.php")</code> e <code>path.includes("/Actions/")</code> são métodos
+    de string do próprio JavaScript (não são TS). <code>endsWith</code> → termina com? ·
+    <code>includes</code> → contém? Ambos devolvem <code>boolean</code>. O TS só acrescenta
+    saber que <code>path</code> é <code>string</code>, então ele <em>oferece</em> esses métodos no
+    autocomplete e barra <code>path.toFixed()</code> (que é de número).
+  </div>
+
+  <h2>2. A garantia que o compilador <em>dá</em>: todo caminho retorna um <code>Layer</code></h2>
+
+  <p>
+    Apague o <code>return "outros"</code> final e o TypeScript recusa o código:
+  </p>
+
+<pre><code><span class="tok-com">// Function lacks ending return statement and return type</span>
+<span class="tok-com">// does not include 'undefined'.  (ts 2366)</span></code></pre>
+
+  <p>
+    Ele analisou <em>todos</em> os caminhos do <code>if</code> e achou um furo: se nenhum casar,
+    a função devolveria <code>undefined</code> — que não é um <code>Layer</code>. Em JS puro isso
+    passaria batido e estouraria só lá na frente, quando alguém usasse o resultado. O balde
+    <code>"outros"</code> (regra 4 do §4.1 do PRD) existe justamente para fechar esse furo.
+  </p>
+
+  <h2>3. A garantia que o compilador <em>não</em> dá: a camada certa</h2>
+
+  <p>Olhe este caminho real — um teste que vive sob uma pasta <code>Actions</code>:</p>
+
+<pre><code>tests/Feature/Actions/CreateUserActionTest.php</code></pre>
+
+  <p>Ele casa com <strong>duas</strong> regras:</p>
+  <p>
+    <span class="pill">endsWith("Test.php") → tests</span>
+    <span class="pill">includes("/Actions/") → action</span>
+  </p>
+
+  <p>
+    Como "primeira que casa vence", a <strong>ordem</strong> decide. Se você checasse Actions
+    antes de tests, esse arquivo de teste seria rotulado <code>"action"</code> — errado. E aqui
+    está o ponto da lição: <strong>o compilador fica calado</strong>. Tanto <code>"action"</code>
+    quanto <code>"tests"</code> são <code>Layer</code> válidos; a assinatura está respeitada. O tipo
+    garante a <em>forma</em>, não a <em>lógica</em>. É por isso que o PRD manda checar tests primeiro.
+  </p>
+
+  <div class="aside">
+    <span class="label">A lição mental do dia</span>
+    Tipos provam <strong>formato</strong> ("é um Layer"). Testes provam <strong>comportamento</strong>
+    ("é o Layer <em>certo</em> para este caminho"). Você precisa dos dois. Um não substitui o outro.
+  </div>
+
+  <h2>4. Provar a lógica com um teste (na Playground)</h2>
+
+  <p>
+    Ainda não temos o app nem um test runner — isso vem na issue 01. Mas dá para provar a
+    lógica agora com uma asserção que roda no navegador:
+  </p>
+
+<pre><code><span class="tok-key">function</span> expectLayer(path: <span class="tok-type">string</span>, esperado: <span class="tok-type">Layer</span>) {
+  <span class="tok-key">const</span> got = categorize(path);
+  console.log(got === esperado ? <span class="tok-str">"✓"</span> : <span class="tok-str">"✗ ESPERAVA "</span> + esperado, path, <span class="tok-str">"→"</span>, got);
+}
+
+expectLayer(<span class="tok-str">"tests/Feature/Actions/CreateUserActionTest.php"</span>, <span class="tok-str">"tests"</span>);
+expectLayer(<span class="tok-str">"app/Contexts/Crm/Actions/CreateUser.php"</span>,         <span class="tok-str">"action"</span>);
+expectLayer(<span class="tok-str">"database/migrations/2024_create_plans_table.php"</span>,   <span class="tok-str">"migration"</span>);
+expectLayer(<span class="tok-str">"composer.json"</span>,                                     <span class="tok-str">"outros"</span>);</code></pre>
+
+  <div class="aside bridge">
+    <span class="label">Ponte com PHP</span>
+    É o mesmo instinto de um teste PHPUnit (<code>assertEquals($esperado, categorize($path))</code>),
+    só que aqui o parâmetro <code>esperado: Layer</code> também é checado pelo compilador: se você
+    escrever <code>expectLayer("…", "actoin")</code> no teste, o typo nem compila.
+  </div>
+
+  <h2>Pratique (recuperação ativa)</h2>
+  <p>Responda de memória antes de revelar.</p>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P1</span> Você apaga o <code>return "outros"</code> final. O que acontece?</p>
+    <button class="quiz-option" data-correct>O compilador acusa caminho sem retorno</button>
+    <button class="quiz-option">O app devolve undefined em silêncio</button>
+    <button class="quiz-option">Nada muda; o último if cobre</button>
+    <p class="quiz-explain">
+      O TS analisa todos os caminhos: sem o balde final, existe um caso (nenhum <code>if</code> casa)
+      em que a função devolveria <code>undefined</code> — que não é <code>Layer</code>. Erro de
+      compilação (ts 2366), <em>antes</em> de rodar. Essa é a garantia que ele dá.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P2</span> Com a regra de <code>/Actions/</code> checada <em>antes</em> da de <code>Test.php</code>,
+      o caminho <code>tests/Feature/Actions/...ActionTest.php</code> é classificado como…</p>
+    <button class="quiz-option" data-correct>action — a primeira regra que casa vence</button>
+    <button class="quiz-option">tests — o sufixo Test sempre prevalece</button>
+    <p class="quiz-explain">
+      "Primeira que casa vence": se Actions vem antes, ele retorna <code>"action"</code> — e está
+      <strong>errado</strong> (devia ser tests). O compilador não reclama porque <code>"action"</code>
+      é um <code>Layer</code> legítimo. Só um teste pega esse bug. Por isso: tests primeiro.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P3</span> Quando <code>categorize</code> compila sem erro, o tipo <code>Layer</code> garante que…</p>
+    <button class="quiz-option" data-correct>você devolve algum Layer válido sempre</button>
+    <button class="quiz-option">você devolve o Layer certo do path</button>
+    <button class="quiz-option">a ordem das regras está correta</button>
+    <p class="quiz-explain">
+      Tipos garantem <strong>formato</strong>: toda saída é um dos 16 literais. Eles não sabem qual
+      é o <em>correto</em> para um caminho, nem se sua ordem de regras faz sentido — isso é lógica,
+      e lógica se prova com teste.
+    </p>
+  </div>
+
+  <h2>Faça agora (5 minutos)</h2>
+  <ol>
+    <li>Na <a href="https://www.typescriptlang.org/play">Playground</a>, junte o <code>type Layer</code>
+      da 0001 + o <code>categorize</code> + o bloco de <code>expectLayer</code> acima.</li>
+    <li>Abra o console (aba "Logs" da Playground) e confira que os 4 casos dão <code>✓</code>.</li>
+    <li><strong>Quebre de propósito:</strong> mova a regra de <code>/Actions/</code> para
+      <em>antes</em> da de <code>Test.php</code>. Rode de novo. Qual caso vira <code>✗</code>? Esse é o
+      bug que a ordem do PRD evita.</li>
+    <li>Desfaça e confirme que voltou tudo a <code>✓</code>.</li>
+  </ol>
+
+  <div class="footer">
+    <div class="source">
+      <strong>Fonte primária de hoje:</strong>
+      <a href="https://www.typescriptlang.org/docs/handbook/2/narrowing.html">TypeScript Handbook — Narrowing</a>
+      (leia a abertura e "<code>typeof</code> type guards"). Mostra como o compilador <em>raciocina</em>
+      sobre caminhos de código — a mesma análise que pega o "caminho sem retorno".
+    </div>
+    <p class="ask">
+      Dúvidas boas para hoje: "por que <code>const</code> e não <code>let</code> no <code>got</code>?",
+      ou "tem como o TS me <em>obrigar</em> a tratar as 16 camadas num switch?" (spoiler: tem, é o
+      <code>never</code> — fica para mais à frente). Pergunte no chat, sou seu professor.
+    </p>
+    <div class="nav-links">
+      <span>← 0001 — O tipo Layer</span>
+      <span>Próxima: 0003 — dar forma aos dados (objetos e interface) →</span>
+    </div>
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

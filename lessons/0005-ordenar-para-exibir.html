@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lição 0005 · Ordenar para exibir — do índice à lista da tela</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+  <p class="kicker">Skanner · TypeScript · Lição 0005</p>
+  <h1>Ordenar para exibir: do índice à lista que a tela percorre</h1>
+  <p class="subtitle">Onde você descobre que o tipo diz <em>quais</em> camadas existem — mas não em <em>que ordem</em> mostrá-las.</p>
+
+  <div class="goal">
+    <span class="label">Win de hoje</span>
+    <p style="margin:0.4rem 0 0">
+      Você transforma o <code>Record&lt;Layer, ChangedFile[]&gt;</code> da 0004 na lista
+      <strong>ordenada</strong> e <strong>sem camadas vazias</strong> que a tela de review renderiza:
+      uma <code>LayerGroup[]</code> na ordem fixa do PRD (§4.2). E entende a verdade por trás disso:
+      <strong>ordem é um dado que você declara, não algo que o tipo garante</strong>.
+    </p>
+  </div>
+
+  <p>
+    O <code>groups</code> da 0004 é ótimo para <em>buscar</em> ("me dá os arquivos de
+    <code>model</code>") — mas péssimo para <em>exibir</em>. A tela precisa das camadas numa ordem
+    fixa (migration primeiro, tests perto do fim) e <strong>sem mostrar as vazias</strong>
+    (PRD §4.2). E aqui mora a armadilha: um objeto/<code>Record</code> <strong>não promete ordem
+    nenhuma</strong> das chaves. Confiar nela para renderizar é bug na certa.
+  </p>
+
+  <h2>1. A verdade central: tipo não é ordem</h2>
+
+  <p>
+    <code>Record&lt;Layer, ChangedFile[]&gt;</code> diz <em>quais</em> chaves existem (as 16 camadas) —
+    e nada sobre a ordem de exibição. Ordem de exibição é <strong>informação do domínio</strong>
+    (o PRD decidiu migration → … → tests → outros), então você a declara como <strong>dado</strong>:
+    uma lista.
+  </p>
+
+<pre><code><span class="tok-key">const</span> LAYER_ORDER: <span class="tok-type">Layer</span>[] = [
+  <span class="tok-str">"migration"</span>, <span class="tok-str">"model"</span>, <span class="tok-str">"enums"</span>, <span class="tok-com">/* … as 16, na ordem do §4.2 … */</span>
+  <span class="tok-str">"action"</span>, <span class="tok-str">"tests"</span>, <span class="tok-str">"outros"</span>,
+];
+<span class="tok-com">// Layer[] = "uma lista de Layer" (0003). Cada item é checado:</span>
+<span class="tok-com">// um "modle" aqui = erro, igual na 0001.</span></code></pre>
+
+  <div class="aside bridge">
+    <span class="label">Ponte com PHP</span>
+    Em PHP é a diferença entre um array <strong>associativo</strong> (<code>['model' =&gt; [...]]</code>,
+    bom pra buscar pela chave) e um array <strong>sequencial</strong> (<code>['migration', 'model', ...]</code>,
+    que guarda a ordem). É a mesma divisão aqui: o <code>Record</code> indexa; a lista
+    <code>LAYER_ORDER</code> ordena. Cada um para seu trabalho.
+  </div>
+
+  <div class="aside">
+    <span class="label">Detalhe honesto</span>
+    O compilador confere que cada item de <code>LAYER_ORDER</code> é um <code>Layer</code> válido —
+    mas <strong>não</strong> exige que você liste todos os 16 (diferente do literal do
+    <code>Record</code> na 0004, que exigia todas as chaves). Esqueceu uma camada na ordem? Ela
+    simplesmente não aparece na tela, sem erro. Vale conferir na mão — ou, mais à frente, derivar
+    uma da outra. Por hoje, declare as 16 com cuidado.
+  </div>
+
+  <h2>2. Montar a lista ordenada: <code>.map</code> sobre a ordem</h2>
+
+  <p>
+    Em vez de percorrer as chaves do <code>Record</code> (cuja ordem não é confiável), você percorre
+    a <strong>sua</strong> lista e busca cada balde por nome:
+  </p>
+
+<pre><code><span class="tok-key">interface</span> <span class="tok-type">LayerGroup</span> {
+  layer: <span class="tok-type">Layer</span>;
+  files: <span class="tok-type">ChangedFile</span>[];
+}
+
+<span class="tok-key">const</span> ordered: <span class="tok-type">LayerGroup</span>[] = LAYER_ORDER.map((layer) =&gt; ({
+  layer: layer,
+  files: groups[layer],
+}));
+<span class="tok-com">// ordered[0] = { layer: "migration", files: [...] }, na ordem que VOCÊ definiu.</span></code></pre>
+
+  <p>
+    Saiu de um <code>Record</code> (sem ordem) para um <code>LayerGroup[]</code> (com ordem) — porque
+    array <strong>preserva</strong> a sequência dos itens. Os <code>(parênteses)</code> em volta do
+    <code>{ }</code> são os mesmos da 0003: sem eles o <code>{</code> viraria bloco de código, não objeto.
+  </p>
+
+  <h2>3. Omitir as vazias: <code>.filter</code></h2>
+
+  <p>
+    Camadas que a PR não tocou ficaram com <code>[]</code>. O PRD manda escondê-las. Filtra:
+  </p>
+
+<pre><code><span class="tok-key">const</span> visible: <span class="tok-type">LayerGroup</span>[] = ordered.filter((group) =&gt; group.files.length &gt; 0);
+<span class="tok-com">// só os grupos que têm pelo menos 1 arquivo. É isso que a UI renderiza.</span></code></pre>
+
+  <div class="aside bridge">
+    <span class="label">Buraco de JS preenchido — <code>.filter()</code></span>
+    <code>.filter(fn)</code> percorre o array e devolve um <strong>novo</strong> array só com os itens em
+    que <code>fn</code> deu <code>true</code> (o original não muda — irmão do <code>.map</code> da 0003).
+    É o <code>array_filter()</code> do PHP, ou <code>-&gt;filter()</code> das Collections do Laravel.
+    <code>.length</code> é o tamanho do array (como <code>count()</code>); <code>&gt; 0</code> = "tem algo".
+  </div>
+
+  <h2>4. Onde isso encaixa no app</h2>
+
+  <p>
+    <code>visible: LayerGroup[]</code> é exatamente o que a tela de review percorre: a navegação lateral
+    <em>Camada → Arquivo</em> (PRD §6) faz um <code>.map</code> sobre essa lista para desenhar uma seção
+    por camada, na ordem certa, sem vazias. No React vai ser literalmente
+    <code>visible.map(group =&gt; …)</code> — por isso valeu a pena terminar num <strong>array</strong>, não num
+    <code>Record</code>.
+  </p>
+  <p>
+    Falta um andar: <strong>quem é a Feature</strong> de cada arquivo (repo modular, PRD §4.1). Isso é uma
+    função nova de peso — <code>resolveContext</code>, com 4 regras de prioridade — e ganha a 0006.
+    Depois dela, a árvore <code>Feature → Camada → Arquivo</code> fecha.
+  </p>
+
+  <h2>Pratique (recuperação ativa)</h2>
+  <p>Responda de memória antes de revelar.</p>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P1</span> Um <code>Record&lt;Layer, ChangedFile[]&gt;</code> garante a ordem
+      em que as camadas serão exibidas?</p>
+    <button class="quiz-option" data-correct>Não — ordem é um dado que você impõe (uma lista); o tipo só diz quais chaves existem</button>
+    <button class="quiz-option">Sim — segue a ordem da declaração do Layer</button>
+    <button class="quiz-option">Sim — sempre em ordem alfabética das chaves</button>
+    <p class="quiz-explain">
+      Objeto/<code>Record</code> descreve <em>quais</em> chaves existem, não a ordem de exibição. Para
+      mostrar numa sequência fixa você declara essa ordem como dado (<code>LAYER_ORDER: Layer[]</code>) e
+      percorre <em>ela</em>.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P2</span> O que <code>ordered.filter(g =&gt; g.files.length &gt; 0)</code>
+      devolve?</p>
+    <button class="quiz-option" data-correct>Um novo array só com os grupos que têm ao menos 1 arquivo</button>
+    <button class="quiz-option">O mesmo array, mas com os vazios marcados</button>
+    <button class="quiz-option">O número de grupos não-vazios</button>
+    <p class="quiz-explain">
+      <code>.filter</code> devolve um <strong>novo</strong> array mantendo só os itens em que a função deu
+      <code>true</code>; o original fica intacto. Aqui: fora as camadas com <code>files</code> vazio —
+      cumprindo o "camadas vazias são omitidas" do PRD §4.2.
+    </p>
+  </div>
+
+  <div class="quiz" data-quiz>
+    <p class="q"><span class="num">P3</span> Por que terminar num <code>LayerGroup[]</code> (array) em vez de
+      entregar o <code>Record</code> direto para a UI?</p>
+    <button class="quiz-option" data-correct>Porque o array preserva a ordem e é o que o React percorre com .map para renderizar as seções</button>
+    <button class="quiz-option">Porque Record não pode ser usado no React</button>
+    <button class="quiz-option">Porque array ocupa menos memória</button>
+    <p class="quiz-explain">
+      A UI desenha as camadas <em>em sequência</em>, então precisa de algo ordenado e iterável em ordem —
+      um array. O <code>Record</code> é a etapa intermediária boa para <em>indexar</em>; o array ordenado é a
+      forma boa para <em>exibir</em>.
+    </p>
+  </div>
+
+  <h2>Faça agora (5 minutos)</h2>
+  <ol>
+    <li>Na <a href="https://www.typescriptlang.org/play">Playground</a>, parta do <code>groups</code> que
+      você montou na 0004.</li>
+    <li>Declare <code>const LAYER_ORDER: Layer[] = [ … ]</code> na ordem do PRD §4.2.</li>
+    <li>Monte <code>ordered: LayerGroup[]</code> com o <code>.map</code> sobre <code>LAYER_ORDER</code>, depois
+      <code>visible</code> com o <code>.filter</code> tirando as vazias. <code>console.log(visible)</code>.</li>
+    <li><strong>Provoque:</strong> ponha um <code>"modle"</code> no <code>LAYER_ORDER</code> e leia o erro
+      (item fora da union <code>Layer</code>).</li>
+    <li><strong>Veja a diferença:</strong> comente o <code>.filter</code> e confira que as camadas vazias
+      voltam a aparecer em <code>ordered</code> — é o filtro que cumpre o §4.2.</li>
+  </ol>
+
+  <div class="footer">
+    <div class="source">
+      <strong>Fonte primária de hoje:</strong>
+      <a href="https://developer.mozilla.org/pt-BR/docs/Web/JavaScript/Reference/Global_Objects/Array/filter">MDN — <code>Array.prototype.filter()</code></a>
+      (e <code>.map()</code> ao lado). O conceito de tipo é o da 0003 (<code>T[]</code> + <code>interface</code>);
+      hoje a novidade é a <strong>ideia</strong> de ordem-como-dado, não um tipo novo.
+    </div>
+    <p class="ask">
+      Dúvidas boas para hoje: "dá pra garantir que <code>LAYER_ORDER</code> tenha as 16 sem esquecer
+      nenhuma?" (resposta-isca: dá, com um truque de tipo que liga a lista à union — vamos ver quando o
+      app pedir), ou "<code>map</code> e <code>filter</code> podem virar um passo só?". Pergunte no chat.
+    </p>
+    <div class="nav-links">
+      <span>← 0004 — Agrupar por camada</span>
+      <span>Próxima: 0006 — resolver a Feature (contexto): a função resolveContext →</span>
+    </div>
+  </div>
+
+  <script src="../assets/quiz.js"></script>
+</body>
+</html>

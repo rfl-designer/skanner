@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Referência · Tipos básicos &amp; unions</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <p class="kicker">Skanner · TypeScript · Referência</p>
+  <h1>Tipos básicos &amp; unions</h1>
+  <p class="subtitle">Folha de consulta rápida. Cresce a cada lição. Feita para imprimir.</p>
+
+  <h2>Anotar um tipo</h2>
+<pre><code><span class="tok-key">let</span> nome: <span class="tok-type">string</span>;        <span class="tok-com">// qualquer texto</span>
+<span class="tok-key">let</span> total: <span class="tok-type">number</span>;      <span class="tok-com">// inteiro ou decimal (um só number)</span>
+<span class="tok-key">let</span> aberta: <span class="tok-type">boolean</span>;    <span class="tok-com">// true | false</span></code></pre>
+
+  <h2>Literal type — um valor exato vira um tipo</h2>
+<pre><code><span class="tok-key">let</span> camada: <span class="tok-str">"migration"</span>;   <span class="tok-com">// só aceita a string "migration"</span></code></pre>
+
+  <h2>Union <code>|</code> — "uma de"</h2>
+<pre><code><span class="tok-key">type</span> <span class="tok-type">Profile</span> = <span class="tok-str">"modular"</span> | <span class="tok-str">"flat"</span>;   <span class="tok-com">// perfil do repo (PRD §4.0)</span></code></pre>
+  <p><code>|</code> = "ou" (union, uma de várias). Não confundir com <code>&amp;</code> = "e ao mesmo tempo".</p>
+
+  <h2>Type alias — dar nome a um tipo</h2>
+<pre><code><span class="tok-key">type</span> <span class="tok-type">Layer</span> = <span class="tok-str">"migration"</span> | <span class="tok-str">"model"</span> | <span class="tok-str">"outros"</span>;</code></pre>
+  <p>Reutiliza o tipo por toda parte sem repetir a lista. Um <code>type</code> some em runtime.</p>
+
+  <h2>Assinatura de função tipada</h2>
+<pre><code><span class="tok-key">function</span> categorize(path: <span class="tok-type">string</span>): <span class="tok-type">Layer</span> { <span class="tok-com">/* … */</span> }
+<span class="tok-com">//                  └ parâmetro      └ tipo de retorno</span></code></pre>
+
+  <h2>Corpo de função: regras "primeira que casa vence"</h2>
+<pre><code><span class="tok-key">if</span> (path.endsWith(<span class="tok-str">"Test.php"</span>)) <span class="tok-key">return</span> <span class="tok-str">"tests"</span>;   <span class="tok-com">// tests ANTES de action</span>
+<span class="tok-key">if</span> (path.includes(<span class="tok-str">"/Actions/"</span>)) <span class="tok-key">return</span> <span class="tok-str">"action"</span>;
+<span class="tok-key">return</span> <span class="tok-str">"outros"</span>;                              <span class="tok-com">// balde: fecha o furo</span></code></pre>
+  <p><code>.endsWith()</code> / <code>.includes()</code> são métodos de string do JS, devolvem <code>boolean</code>.</p>
+
+  <h2>Tipo vs. teste (a fronteira)</h2>
+  <ul style="font-size:0.92rem">
+    <li><strong>Tipo</strong> garante o <em>formato</em>: a saída é <em>algum</em> <code>Layer</code>. Sem balde final → erro "caminho sem retorno" (ts 2366).</li>
+    <li><strong>Teste</strong> garante o <em>comportamento</em>: é o <code>Layer</code> <em>certo</em>. A ordem das regras é lógica — só teste pega.</li>
+  </ul>
+
+  <h2>Object type / <code>interface</code> — dar nome a uma forma</h2>
+<pre><code><span class="tok-key">interface</span> <span class="tok-type">ChangedFile</span> {
+  path: <span class="tok-type">string</span>;
+  layer: <span class="tok-type">Layer</span>;
+  additions?: <span class="tok-type">number</span>;   <span class="tok-com">// '?' = opcional</span>
+}</code></pre>
+  <p>Descreve só o <em>formato</em>: sem classe, sem <code>new</code>, some em runtime. Cobra
+    campos faltando, nome de campo errado e valor fora do tipo.</p>
+
+  <h2>Array <code>T[]</code> e <code>.map()</code></h2>
+<pre><code><span class="tok-key">const</span> files: <span class="tok-type">ChangedFile</span>[] = paths.map(<span class="tok-key">function</span> (path) {
+  <span class="tok-key">return</span> { path: path, layer: categorize(path) };
+});                                  <span class="tok-com">// string[] → ChangedFile[]</span></code></pre>
+  <p><code>T[]</code> = "array de T". <code>.map(fn)</code> = novo array com <code>fn</code> em cada item
+    (igual <code>array_map</code> / Collections <code>-&gt;map</code>). Forma curta:
+    <code>paths.map(p =&gt; ({ path: p, layer: categorize(p) }))</code> — parênteses no objeto são obrigatórios.</p>
+
+  <h2>Switch exaustivo: <code>never</code> / <code>assertNever</code></h2>
+  <p>Obriga (em compilação) a tratar <em>todos</em> os membros de uma union. Adicionou uma
+    17ª camada? Todo switch que esqueceu dela para de compilar.</p>
+<pre><code><span class="tok-key">function</span> assertNever(x: <span class="tok-type">never</span>): <span class="tok-type">never</span> {
+  <span class="tok-key">throw new</span> Error(<span class="tok-str">"Camada não tratada: "</span> + x);
+}
+
+<span class="tok-key">function</span> labelFor(layer: <span class="tok-type">Layer</span>): <span class="tok-type">string</span> {
+  <span class="tok-key">switch</span> (layer) {
+    <span class="tok-key">case</span> <span class="tok-str">"migration"</span>: <span class="tok-key">return</span> <span class="tok-str">"Migration"</span>;
+    <span class="tok-com">/* ... TODAS as 16 ... */</span>
+    <span class="tok-key">case</span> <span class="tok-str">"outros"</span>:    <span class="tok-key">return</span> <span class="tok-str">"Outros"</span>;
+    <span class="tok-key">default</span>:           <span class="tok-key">return</span> assertNever(layer); <span class="tok-com">// ✗ compila se faltar caso</span>
+  }
+}</code></pre>
+  <p class="aside"><strong>Por quê:</strong> no <code>default</code>, o TS estreitou <code>layer</code> ao que
+    sobrou. Tratou tudo → sobra <code>never</code> (nenhum valor), e só <code>never</code> entra em
+    <code>assertNever</code>. Faltou um caso → aquele literal não é <code>never</code> → erro ali.
+    Guarda duplo: <em>compilação</em> (faltou caso) + <em>runtime</em> (exceção clara).</p>
+  <p class="aside">Analogia: é o botão <strong>"finalizar review" do próprio Skanner</strong> — só
+    destrava quando todo arquivo da PR está marcado. PR ganha um arquivo novo → trava de novo.</p>
+
+  <h2>As 16 camadas canônicas do Skanner (ordem de exibição)</h2>
+  <p>
+    <span class="pill">migration</span><span class="pill">model</span><span class="pill">enum</span><span class="pill">dto</span><span class="pill">policy</span><span class="pill">action</span><span class="pill">service</span><span class="pill">job</span><span class="pill">event</span><span class="pill">listener</span><span class="pill">observer</span><span class="pill">notification</span><span class="pill">livewire</span><span class="pill">blade</span><span class="pill">tests</span><span class="pill">outros</span>
+  </p>
+  <p class="aside">A ordem é regra de <em>exibição</em> (PRD §4.2), não da union. Uma union não tem ordem.</p>
+
+  <h2>Ponte mental PHP → TS</h2>
+  <table style="width:100%; border-collapse:collapse; font-size:0.9rem">
+    <tr style="border-bottom:1px solid var(--rule)"><td style="padding:0.3rem 0"><strong>PHP</strong></td><td><strong>TypeScript</strong></td><td><strong>diferença-chave</strong></td></tr>
+    <tr style="border-bottom:1px solid var(--rule)"><td style="padding:0.3rem 0"><code>string $x</code></td><td><code>x: string</code></td><td>TS checa antes de rodar, não em runtime</td></tr>
+    <tr style="border-bottom:1px solid var(--rule)"><td style="padding:0.3rem 0"><code>enum L: string</code></td><td><code>type L = "a"|"b"</code></td><td>union é só tipo, sem classe; some em runtime</td></tr>
+    <tr><td style="padding:0.3rem 0"><code>): Layer</code></td><td><code>): Layer</code></td><td>idêntico na forma; semântica de checagem difere</td></tr>
+  </table>
+
+  <p style="margin-top:2rem; font-size:0.85rem; color:var(--ink-soft)">
+    Lições relacionadas: <a href="../lessons/0001-layer-union-types.html">0001 — O tipo Layer</a>.
+    Fonte: <a href="https://www.typescriptlang.org/docs/handbook/2/everyday-types.html">Handbook — Everyday Types</a>.
+  </p>
+</body>
+</html>
