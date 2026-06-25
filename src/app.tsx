@@ -1,46 +1,58 @@
 import { useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
-import { getRepoRoot } from './services/repo.js';
+import { WorkingDiffView } from './views/working-diff.js';
+import { PrsView } from './views/prs.js';
+
+type Tab = 'local' | 'prs';
 
 export function App() {
   const { exit } = useApp();
-  const [root, setRoot] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>('local');
+  const [capturing, setCapturing] = useState(false);
 
-  useInput((input) => {
-    if (input === 'q') {
-      exit();
+  useInput((input, key) => {
+    if (key.tab) {
+      setTab((t) => (t === 'local' ? 'prs' : 'local'));
       return;
     }
-    if (input === 'g') {
-      getRepoRoot()
-        .then((path) => {
-          setError(null);
-          setRoot(path);
-        })
-        .catch((err: unknown) => {
-          setRoot(null);
-          setError(err instanceof Error ? err.message : String(err));
-        });
+    // 'q' não encerra enquanto a aba PRs captura o PAT (senão viraria parte do token).
+    if (!capturing && input === 'q') {
+      exit();
     }
   });
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color="cyan" bold>
-        Skanner — esqueleto andante
-      </Text>
-      <Text dimColor>[g] resolver raiz do repo · [q] sair</Text>
+      <Box>
+        <Text color="cyan" bold>
+          Skanner
+        </Text>
+        <Text>{'   '}</Text>
+        <Tabs active={tab} />
+      </Box>
+      <Text dimColor>[tab] alterna aba{capturing ? '' : ' · [q] sair'}</Text>
 
       <Box marginTop={1}>
-        {root !== null ? (
-          <Text color="green">raiz: {root}</Text>
-        ) : error !== null ? (
-          <Text color="red">erro: {error}</Text>
+        {tab === 'local' ? (
+          <WorkingDiffView />
         ) : (
-          <Text dimColor>aperte [g] para chamar o serviço Node…</Text>
+          <PrsView onCapturingChange={setCapturing} />
         )}
       </Box>
+    </Box>
+  );
+}
+
+function Tabs({ active }: { active: Tab }) {
+  return (
+    <Box>
+      <Text color={active === 'local' ? 'green' : undefined} bold={active === 'local'}>
+        Working diff
+      </Text>
+      <Text dimColor>{'  |  '}</Text>
+      <Text color={active === 'prs' ? 'green' : undefined} bold={active === 'prs'}>
+        PRs
+      </Text>
     </Box>
   );
 }
