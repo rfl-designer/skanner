@@ -250,6 +250,64 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
   });
 });
 
+describe('WorkingDiffView — seleção múltipla (#46)', () => {
+  it('[espaço] marca o arquivo sob o cursor (✓ na sidebar) e marca de novo desmarca', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    expect(lastFrame()).not.toContain('✓'); // entra sem marcação
+
+    stdin.write(' '); // marca o arquivo 1
+    await tick();
+    expect(lastFrame()).toContain('✓');
+
+    stdin.write(' '); // desmarca
+    await tick();
+    expect(lastFrame()).not.toContain('✓');
+    unmount();
+  });
+
+  it('navegar (j/k) não altera a marcação; dá para marcar vários', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    stdin.write(' '); // marca arquivo 1
+    await tick();
+    stdin.write('\x1B[B'); // desce p/ arquivo 2 — marcação do 1 permanece
+    await tick();
+    expect(lastFrame()).toContain('arquivo 2/2');
+    expect(lastFrame()).toContain('✓'); // o 1 segue marcado
+    stdin.write(' '); // marca o 2 também
+    await tick();
+    expect((lastFrame() ?? '').match(/✓/g)?.length).toBe(2); // dois marcados
+    unmount();
+  });
+
+  it('o atalho [espaço] marcar aparece no rodapé da sidebar', async () => {
+    diff.mockResolvedValue(migrationOnly);
+    const { lastFrame, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    expect(lastFrame()).toContain('[espaço] marcar');
+    unmount();
+  });
+
+  it('marcação é efêmera: zera ao recarregar (#46)', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, rerender, unmount } = render(
+      <WorkingDiffView repo={modularRepo} reload={{ nonce: 0, preserve: false }} />,
+    );
+    await tick();
+    stdin.write(' '); // marca
+    await tick();
+    expect(lastFrame()).toContain('✓');
+
+    rerender(<WorkingDiffView repo={modularRepo} reload={{ nonce: 1, preserve: true }} />);
+    await tick();
+    expect(lastFrame()).not.toContain('✓'); // some ao recarregar
+    unmount();
+  });
+});
+
 // Ordem do multiLayer (modular, contexto Crm): migration antes de model (LAYER_ORDER).
 // Logo arquivo 1 = …/2026_create_contacts_table.php, arquivo 2 = …/Models/Contact.php.
 describe('WorkingDiffView — reload preservado vs manual (#37)', () => {

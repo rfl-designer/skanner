@@ -56,6 +56,9 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   const [focus, setFocus] = useState<'sidebar' | 'diff'>('sidebar');
   // Bloco (hunk) em foco no diff; [j/k] caminha entre eles quando o foco é o diff.
   const [hunkIdx, setHunkIdx] = useState(0);
+  // Arquivos marcados para o commit ([espaço]). Efêmero: NÃO persiste no conf
+  // (diferente do checklist de PR) e zera a cada reload. Issue #46.
+  const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set());
   const maxRows = useDiffViewport();
 
   // Seleção atual (caminho + índice + estado de leitura) num ref, para o reload
@@ -101,6 +104,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         setExpanded(samePath ? keep.expanded : false);
         setFocus(samePath ? keep.focus : 'sidebar');
         setHunkIdx(samePath ? keep.hunkIdx : 0);
+        setMarked(new Set()); // marcação é efêmera: some ao recarregar (AC #46).
         setState({ status: 'ready', review, files: flat, layers: detectedLayers(files) });
       })
       .catch((err: unknown) => {
@@ -111,9 +115,21 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
     };
   }, [repo, reload]);
 
+  /** Marca/desmarca o arquivo sob o cursor para o commit. Sem persistência (#46). */
+  function toggleMarked() {
+    if (state.status !== 'ready') return;
+    const path = state.files[Math.min(cursor, state.files.length - 1)].path;
+    const next = new Set(marked);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setMarked(next);
+  }
+
   useInput((input, key) => {
     if (state.status !== 'ready') return;
-    if (input === 'h') {
+    if (input === ' ') {
+      toggleMarked();
+    } else if (input === 'h') {
       setFocus('sidebar');
       setExpanded(false);
     } else if (input === 'l') {
@@ -172,7 +188,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
       </Text>
       <Box marginTop={1} flexDirection="row" gap={2}>
-        {!expanded && <LocalTree review={state.review} selectedPath={selected.path} />}
+        {!expanded && <LocalTree review={state.review} selectedPath={selected.path} marked={marked} />}
         <Box flexDirection="column" flexShrink={1}>
           <Text>
             {selected.status.kind === 'renamed' ? (
@@ -190,7 +206,9 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         </Box>
       </Box>
       <Text dimColor>
-        {onDiff ? '[j/k] bloco · [h] sidebar · [tab] dobrar' : '[j/k] arquivo · [l] diff · [tab] expandir'}
+        {onDiff
+          ? '[j/k] bloco · [h] sidebar · [tab] dobrar'
+          : '[j/k] arquivo · [l] diff · [espaço] marcar · [tab] expandir'}
       </Text>
     </Box>
   );
@@ -208,11 +226,19 @@ function layerHeader(layers: Layer[]): string {
  * (modular: Contexto → Camada → arquivo; flat: só Camada → arquivo), com o cursor
  * marcado. Sem checkbox/agregado — o checklist é do modo remoto (PRD §3).
  */
-function LocalTree({ review, selectedPath }: { review: GroupedReview; selectedPath: string }) {
+function LocalTree({
+  review,
+  selectedPath,
+  marked,
+}: {
+  review: GroupedReview;
+  selectedPath: string;
+  marked: ReadonlySet<string>;
+}) {
   if (review.profile === 'flat') {
     return (
       <Box flexDirection="column">
-        <LayerList layers={review.layers} selectedPath={selectedPath} />
+        <LayerList layers={review.layers} selectedPath={selectedPath} marked={marked} />
       </Box>
     );
   }
@@ -223,7 +249,7 @@ function LocalTree({ review, selectedPath }: { review: GroupedReview; selectedPa
           <Text bold color="cyan">
             {group.context ?? NO_CONTEXT_LABEL}
           </Text>
-          <LayerList layers={group.layers} selectedPath={selectedPath} />
+          <LayerList layers={group.layers} selectedPath={selectedPath} marked={marked} />
         </Box>
       ))}
     </Box>
@@ -231,7 +257,15 @@ function LocalTree({ review, selectedPath }: { review: GroupedReview; selectedPa
 }
 
 /** Nível Camada → arquivo, compartilhado pelos perfis modular e flat. */
-function LayerList({ layers, selectedPath }: { layers: LayerGroup[]; selectedPath: string }) {
+function LayerList({
+  layers,
+  selectedPath,
+  marked,
+}: {
+  layers: LayerGroup[];
+  selectedPath: string;
+  marked: ReadonlySet<string>;
+}) {
   return (
     <>
       {layers.map((layer) => (
@@ -239,9 +273,11 @@ function LayerList({ layers, selectedPath }: { layers: LayerGroup[]; selectedPat
           <Text dimColor> {LAYER_LABEL[layer.layer]}</Text>
           {layer.files.map((file) => {
             const here = file.path === selectedPath;
+            const isMarked = marked.has(file.path);
             return (
               <Text key={file.path} color={here ? 'green' : undefined}>
                 {here ? ' › ' : '   '}
+                {isMarked ? '✓ ' : '  '}
                 {basename(file.path)}
               </Text>
             );
