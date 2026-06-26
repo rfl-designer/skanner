@@ -148,3 +148,38 @@ export function hunkStarts(patch: string): number[] {
   }
   return starts;
 }
+
+/**
+ * Maior `scrollTop` que ainda desenha conteúdo: garante que a última página
+ * (`maxRows` linhas) seja alcançável mesmo quando um único hunk é mais alto que o
+ * viewport. Sem isso, o scroll ancorado em hunk deixa a cauda do hunk inacessível.
+ */
+export function maxScrollTop(totalLines: number, maxRows: number): number {
+  return Math.max(0, totalLines - maxRows);
+}
+
+/** Índice do hunk que contém (ou precede) a linha `scrollTop` — rótulo "bloco N/N". */
+export function hunkAt(starts: number[], scrollTop: number): number {
+  let idx = 0;
+  for (let i = 0; i < starts.length; i++) {
+    if (starts[i] <= scrollTop) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+/** Próximo início de hunk estritamente após `scrollTop` ([J]); fica no último se não houver. */
+export function nextHunkStart(starts: number[], scrollTop: number): number {
+  for (const s of starts) if (s > scrollTop) return s;
+  return starts.length > 0 ? starts[starts.length - 1] : 0;
+}
+
+/** Início de hunk estritamente antes de `scrollTop` ([K]); cai em 0 se não houver. */
+export function prevHunkStart(starts: number[], scrollTop: number): number {
+  let prev = 0;
+  for (const s of starts) {
+    if (s < scrollTop) prev = s;
+    else break;
+  }
+  return prev;
+}

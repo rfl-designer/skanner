@@ -23,7 +23,7 @@ import {
   type IssueContext,
 } from '../core/commit.js';
 import { detectedLayers, preserveCursor } from '../core/local.js';
-import { hunkStarts } from '../core/diff.js';
+import { hunkStarts, hunkAt, maxScrollTop, nextHunkStart, prevHunkStart } from '../core/diff.js';
 import type { ResolvedRepo } from '../core/repo.js';
 import { FileDiff, useDiffViewport, basename } from './diff-render.js';
 
@@ -81,8 +81,8 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   const [expanded, setExpanded] = useState(false);
   // Foco entre painéis: [l] vai ao diff (desdobra, esconde a sidebar), [h] volta (dobra).
   const [focus, setFocus] = useState<'sidebar' | 'diff'>('sidebar');
-  // Bloco (hunk) em foco no diff; [j/k] caminha entre eles quando o foco é o diff.
-  const [hunkIdx, setHunkIdx] = useState(0);
+  // Linha do topo do viewport do diff: [j/k] rolam linha-a-linha, [J/K] saltam de hunk.
+  const [scrollTop, setScrollTop] = useState(0);
   // Arquivos marcados para o commit ([espaço]). Efêmero: NÃO persiste no conf
   // (diferente do checklist de PR) e zera a cada reload. Issue #46.
   const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set());
@@ -101,14 +101,14 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
     index: number;
     expanded: boolean;
     focus: 'sidebar' | 'diff';
-    hunkIdx: number;
-  }>({ path: null, index: 0, expanded: false, focus: 'sidebar', hunkIdx: 0 });
+    scrollTop: number;
+  }>({ path: null, index: 0, expanded: false, focus: 'sidebar', scrollTop: 0 });
   selection.current = {
     path: state.status === 'ready' ? state.files[Math.min(cursor, state.files.length - 1)]?.path ?? null : null,
     index: cursor,
     expanded,
     focus,
-    hunkIdx,
+    scrollTop,
   };
 
   useEffect(() => {
@@ -124,7 +124,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
           setCursor(0);
           setExpanded(false);
           setFocus('sidebar');
-          setHunkIdx(0);
+          setScrollTop(0);
           setState({ status: 'empty' });
           return;
         }
@@ -136,7 +136,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         setCursor(nextCursor);
         setExpanded(samePath ? keep.expanded : false);
         setFocus(samePath ? keep.focus : 'sidebar');
-        setHunkIdx(samePath ? keep.hunkIdx : 0);
+        setScrollTop(samePath ? keep.scrollTop : 0);
         setMarked(new Set()); // marcação é efêmera: some ao recarregar (AC #46).
         setState({ status: 'ready', review, files: flat, layers: detectedLayers(files) });
       })
@@ -295,17 +295,22 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
       }
     } else if (focus === 'diff') {
       const sel = state.files[Math.min(cursor, state.files.length - 1)];
-      const last = (sel.body.kind === 'patch' ? hunkStarts(sel.body.patch).length : 0) - 1;
-      if (key.downArrow || input === 'j') setHunkIdx((h) => Math.min(h + 1, Math.max(0, last)));
-      else if (key.upArrow || input === 'k') setHunkIdx((h) => Math.max(h - 1, 0));
+      if (sel.body.kind === 'patch') {
+        const ceil = maxScrollTop(sel.body.patch.split('\n').length, maxRows);
+        const starts = hunkStarts(sel.body.patch);
+        if (input === 'J') setScrollTop(Math.min(nextHunkStart(starts, scrollTop), ceil));
+        else if (input === 'K') setScrollTop(prevHunkStart(starts, scrollTop));
+        else if (key.downArrow || input === 'j') setScrollTop((s) => Math.min(s + 1, ceil));
+        else if (key.upArrow || input === 'k') setScrollTop((s) => Math.max(s - 1, 0));
+      }
     } else if (key.downArrow || input === 'j') {
       setCursor((c) => Math.min(c + 1, state.files.length - 1));
       setExpanded(false);
-      setHunkIdx(0);
+      setScrollTop(0);
     } else if (key.upArrow || input === 'k') {
       setCursor((c) => Math.max(c - 1, 0));
       setExpanded(false);
-      setHunkIdx(0);
+      setScrollTop(0);
     }
   });
 
@@ -418,8 +423,9 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
 
   const selected = state.files[Math.min(cursor, state.files.length - 1)];
   const hunks = selected.body.kind === 'patch' ? hunkStarts(selected.body.patch) : [];
-  const safeHunk = Math.min(hunkIdx, Math.max(0, hunks.length - 1));
-  const scrollTop = expanded && hunks.length > 0 ? hunks[safeHunk] : 0;
+  const totalLines = selected.body.kind === 'patch' ? selected.body.patch.split('\n').length : 0;
+  const safeScroll = expanded ? Math.min(scrollTop, maxScrollTop(totalLines, maxRows)) : 0;
+  const safeHunk = hunkAt(hunks, safeScroll);
   const onDiff = focus === 'diff';
   return (
     <Box flexDirection="column">
@@ -442,12 +448,12 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
             )}
             {onDiff && hunks.length > 1 ? <Text dimColor> · bloco {safeHunk + 1}/{hunks.length}</Text> : null}
           </Text>
-          <FileDiff file={selected} expanded={expanded} scrollTop={scrollTop} maxRows={maxRows} />
+          <FileDiff file={selected} expanded={expanded} scrollTop={safeScroll} maxRows={maxRows} />
         </Box>
       </Box>
       <Text dimColor>
         {onDiff
-          ? '[j/k] bloco · [h] sidebar · [tab] dobrar'
+          ? '[j/k] rolar · [J/K] bloco · [h] sidebar · [tab] dobrar'
           : `[j/k] arquivo · [l] diff · [espaço] marcar${marked.size > 0 ? ' · [c] commitar' : ''} · [tab] expandir`}
       </Text>
     </Box>

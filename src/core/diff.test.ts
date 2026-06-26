@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   badgesFor,
   COLLAPSE_CEILING,
+  hunkAt,
   hunkStarts,
   isOversized,
+  maxScrollTop,
+  nextHunkStart,
+  prevHunkStart,
   toDiffFile,
   type DiffFile,
 } from './diff.js';
@@ -124,5 +128,32 @@ describe('hunkStarts — âncoras de bloco no patch', () => {
 
   it('patch sem cabeçalho de hunk não tem âncoras', () => {
     expect(hunkStarts('+linha solta\n+outra')).toEqual([]);
+  });
+});
+
+describe('scroll por linha do diff (#scroll: hunk maior que a tela)', () => {
+  it('maxScrollTop garante a última página alcançável — e nunca é negativo', () => {
+    expect(maxScrollTop(30, 10)).toBe(20); // sobra 20 acima do topo da última página
+    expect(maxScrollTop(8, 15)).toBe(0); // diff menor que o viewport não rola
+  });
+
+  it('hunkAt resolve o bloco que contém (ou precede) o topo do viewport', () => {
+    const starts = [0, 21];
+    expect(hunkAt(starts, 0)).toBe(0);
+    expect(hunkAt(starts, 20)).toBe(0); // ainda dentro do 1º bloco
+    expect(hunkAt(starts, 21)).toBe(1); // chegou no 2º
+    expect(hunkAt([], 5)).toBe(0); // sem hunks: não estoura
+  });
+
+  it('nextHunkStart pula para o próximo @@ e fica no último quando não há mais', () => {
+    const starts = [0, 21];
+    expect(nextHunkStart(starts, 0)).toBe(21);
+    expect(nextHunkStart(starts, 21)).toBe(21); // já no último: não avança
+  });
+
+  it('prevHunkStart volta para o @@ anterior e cai em 0 quando não há', () => {
+    const starts = [0, 21];
+    expect(prevHunkStart(starts, 21)).toBe(0);
+    expect(prevHunkStart(starts, 0)).toBe(0); // já no primeiro
   });
 });
