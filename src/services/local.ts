@@ -22,9 +22,10 @@ import {
 
 /**
  * Diff do change-set não-commitado de `repoPath`. Para cada arquivo do
- * `git status`: untracked → bloco de adição sintetizado do conteúdo (lido do fs,
- * sem tocar o index); rastreado → patch de `git diff HEAD -- <arquivo>` (que cobre
- * staged+unstaged juntos), classificado pelo núcleo. `url` é sempre `null`.
+ * `git status`: untracked → bytes lidos do fs (sem tocar o index) e classificados
+ * pelo núcleo (texto → bloco de adição sintetizado; binário → `binary`);
+ * rastreado → patch de `git diff HEAD -- <arquivo>` (que cobre staged+unstaged
+ * juntos), classificado pelo núcleo. `url` é sempre `null`.
  */
 export async function diff(repoPath: string): Promise<DiffFile[]> {
   const git = simpleGit(repoPath);
@@ -33,7 +34,10 @@ export async function diff(repoPath: string): Promise<DiffFile[]> {
   const files: DiffFile[] = [];
   for (const entry of status.files) {
     if (isUntracked(entry.index, entry.working_dir)) {
-      const content = await fs.readFile(path.join(repoPath, entry.path), 'utf8');
+      // Lê os bytes crus (sem encoding): o núcleo decide binário/texto pelo
+      // conteúdo (presença de `\0`); decodificar p/ utf8 aqui sintetizaria
+      // mojibake de um arquivo binário novo como adições. Issue #34.
+      const content = await fs.readFile(path.join(repoPath, entry.path));
       files.push(untrackedDiffFile(entry.path, content));
       continue;
     }

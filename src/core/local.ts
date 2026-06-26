@@ -28,17 +28,29 @@ export function synthesizeAddition(content: string): string {
 }
 
 /**
- * Arquivo untracked + conteúdo → [DiffFile](diff.ts) todo-adições. Status sempre
- * `added` (é arquivo novo); corpo é o bloco sintetizado; `url` é `null` (modo
- * local não tem origem no GitHub). Coração do ramo untracked do serviço.
+ * O conteúdo cru de um arquivo é **binário** (não-texto)? Heurística do próprio
+ * git: a presença de um byte nulo (`\0`) marca o arquivo como binário — texto
+ * nunca o contém. É a salvaguarda que faltava ao ramo untracked: o rastreado já
+ * vem marcado pelo `git diff` ([bodyFromPatch](#bodyfrompatch)), mas o untracked
+ * é lido direto do fs, e sem isto um PNG novo viraria mojibake sintetizado como
+ * adições. Issue #34.
  */
-export function untrackedDiffFile(path: string, content: string): DiffFile {
-  return {
-    path,
-    status: { kind: 'added' },
-    body: { kind: 'patch', patch: synthesizeAddition(content) },
-    url: null,
-  };
+export function isBinaryContent(content: Buffer): boolean {
+  return content.includes(0);
+}
+
+/**
+ * Arquivo untracked + conteúdo cru → [DiffFile](diff.ts). Status sempre `added`
+ * (é arquivo novo); `url` é `null` (modo local não tem origem no GitHub). O corpo
+ * é decisão de domínio: conteúdo binário → `binary` (sem corpo, igual ao
+ * rastreado); senão, o bloco todo-adições sintetizado do texto. Coração do ramo
+ * untracked do serviço.
+ */
+export function untrackedDiffFile(path: string, content: Buffer): DiffFile {
+  const body: DiffBody = isBinaryContent(content)
+    ? { kind: 'binary' }
+    : { kind: 'patch', patch: synthesizeAddition(content.toString('utf8')) };
+  return { path, status: { kind: 'added' }, body, url: null };
 }
 
 /** Códigos de status de um arquivo rastreado, como o `git status` os reporta. */

@@ -34,7 +34,7 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
     status.mockResolvedValue(
       statusResult([{ path: 'database/migrations/2026_create_x_table.php', index: '?', working_dir: '?' }]),
     );
-    readFile.mockResolvedValue('<?php\nreturn 1;\n');
+    readFile.mockResolvedValue(Buffer.from('<?php\nreturn 1;\n', 'utf8'));
 
     const files = await diff('/repo');
 
@@ -46,16 +46,33 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
         url: null,
       },
     ]);
-    // leu o arquivo (caminho absoluto sob o repo), não o git diff dele.
-    expect(readFile).toHaveBeenCalledWith('/repo/database/migrations/2026_create_x_table.php', 'utf8');
+    // leu os bytes crus do arquivo (caminho absoluto sob o repo, SEM encoding),
+    // não o git diff dele.
+    expect(readFile).toHaveBeenCalledWith('/repo/database/migrations/2026_create_x_table.php');
     expect(gitDiff).not.toHaveBeenCalled();
+  });
+
+  it('untracked binário (PNG novo com \\0): vira binary, sem sintetizar mojibake como adições', async () => {
+    status.mockResolvedValue(statusResult([{ path: 'public/logo.png', index: '?', working_dir: '?' }]));
+    readFile.mockResolvedValue(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x1a]));
+
+    const files = await diff('/repo');
+
+    expect(files[0]).toEqual<DiffFile>({
+      path: 'public/logo.png',
+      status: { kind: 'added' },
+      body: { kind: 'binary' },
+      url: null,
+    });
+    expect(gitDiff).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
   });
 
   it('o index NÃO é tocado: nunca chama add/add -N (read-only, AC)', async () => {
     status.mockResolvedValue(
       statusResult([{ path: 'novo.ts', index: '?', working_dir: '?' }]),
     );
-    readFile.mockResolvedValue('x\n');
+    readFile.mockResolvedValue(Buffer.from('x\n', 'utf8'));
 
     await diff('/repo');
 
@@ -151,7 +168,7 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
         { path: 'app/Models/X.php', index: ' ', working_dir: 'M' },
       ]),
     );
-    readFile.mockResolvedValue('novo\n');
+    readFile.mockResolvedValue(Buffer.from('novo\n', 'utf8'));
     gitDiff.mockResolvedValue('@@ -1 +1 @@\n+y\n');
 
     const files = await diff('/repo');
