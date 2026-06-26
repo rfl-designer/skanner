@@ -29,6 +29,8 @@ const summary = {
   title: 'feat: fatia vertical',
   user: { login: 'rafa' },
   head: { ref: 'feat/slice' },
+  base: { ref: 'main' },
+  draft: false,
   updated_at: '2026-06-20T10:00:00Z',
 };
 const okResponse = (data: unknown[], etag = '"v1"') => ({ data, headers: { etag } });
@@ -61,6 +63,8 @@ describe('prs.revalidate — busca condicional + cache', () => {
         title: 'feat: fatia vertical',
         author: 'rafa',
         branch: 'feat/slice',
+        baseBranch: 'main',
+        draft: false,
         additions: 120,
         deletions: 8,
         updatedAt: '2026-06-20T10:00:00Z',
@@ -103,6 +107,8 @@ describe('prs.revalidate — busca condicional + cache', () => {
         title: 'feat: fatia vertical',
         author: 'rafa',
         branch: 'feat/slice',
+        baseBranch: 'main',
+        draft: false,
         additions: 120,
         deletions: 8,
         updatedAt: '2026-06-20T10:00:00Z',

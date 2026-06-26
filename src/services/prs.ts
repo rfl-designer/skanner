@@ -1,7 +1,8 @@
 import { Octokit } from 'octokit';
 import { readToken } from './auth.js';
-import { readPrsCache, writePrsCache } from './conf.js';
+import { readPrsCache, writePrsCache, readPrFilters, writePrFilters } from './conf.js';
 import type { ResolvedRepo, RepoIdentity } from '../core/repo.js';
+import type { PrFilters } from '../core/filterPrs.js';
 
 /**
  * Módulo de serviço `prs` (PRD §6.1, CONTEXT.md §Módulo de serviço): a fronteira
@@ -23,7 +24,12 @@ export interface PullRequest {
   number: number;
   title: string;
   author: string;
+  /** Branch de origem (head ref) — o que a lista exibe. */
   branch: string;
+  /** Branch base (alvo do merge) — eixo de filtro da issue #10. */
+  baseBranch: string;
+  /** Se a PR é um rascunho (draft) — eixo de filtro da issue #10. */
+  draft: boolean;
   additions: number;
   deletions: number;
   updatedAt: string;
@@ -53,6 +59,18 @@ export function readCache(repo: ResolvedRepo): CachedList | null {
   return readPrsCache(`${owner}/${name}`);
 }
 
+/** Filtros lembrados deste repo (issue #10), ou `null` se nunca foram salvos. */
+export function readFilters(repo: ResolvedRepo): PrFilters | null {
+  const { owner, name } = githubIdentity(repo);
+  return readPrFilters(`${owner}/${name}`);
+}
+
+/** Persiste os filtros deste repo (issue #10), keyed `owner/name`. */
+export function writeFilters(repo: ResolvedRepo, filters: PrFilters): void {
+  const { owner, name } = githubIdentity(repo);
+  writePrFilters(`${owner}/${name}`, filters);
+}
+
 /** `error.status === N`? (RequestError do Octokit — ex.: 304 Not Modified.) */
 function hasStatus(err: unknown, status: number): boolean {
   return (
@@ -68,7 +86,7 @@ async function detailsOf(
   octokit: Octokit,
   owner: string,
   name: string,
-  summaries: { number: number; title: string; user: { login: string } | null; head: { ref: string }; updated_at: string }[],
+  summaries: { number: number; title: string; user: { login: string } | null; head: { ref: string }; base: { ref: string }; draft?: boolean; updated_at: string }[],
 ): Promise<PullRequest[]> {
   return Promise.all(
     summaries.map(async (pr) => {
@@ -82,6 +100,8 @@ async function detailsOf(
         title: pr.title,
         author: pr.user?.login ?? '—',
         branch: pr.head.ref,
+        baseBranch: pr.base.ref,
+        draft: pr.draft ?? false,
         additions: data.additions,
         deletions: data.deletions,
         updatedAt: pr.updated_at,
