@@ -18,14 +18,17 @@ const cachedList = (prs: unknown[], fetchedAt = new Date().toISOString()) => ({
   etag: '"v"',
   fetchedAt,
 });
-const pr = (number: number, title: string) => ({
+const pr = (number: number, title: string, over: Record<string, unknown> = {}) => ({
   number,
   title,
   author: 'rafa',
   branch: 'feat/slice',
+  baseBranch: 'main',
+  draft: false,
   additions: 120,
   deletions: 8,
   updatedAt: '2026-06-20T10:00:00Z',
+  ...over,
 });
 
 import { PrsView } from './prs.js';

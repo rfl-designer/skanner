@@ -23,7 +23,12 @@ export interface PullRequest {
   number: number;
   title: string;
   author: string;
+  /** Branch de origem (head ref) — o que a lista exibe. */
   branch: string;
+  /** Branch base (alvo do merge) — eixo de filtro da issue #10. */
+  baseBranch: string;
+  /** Se a PR é um rascunho (draft) — eixo de filtro da issue #10. */
+  draft: boolean;
   additions: number;
   deletions: number;
   updatedAt: string;
@@ -68,7 +73,7 @@ async function detailsOf(
   octokit: Octokit,
   owner: string,
   name: string,
-  summaries: { number: number; title: string; user: { login: string } | null; head: { ref: string }; updated_at: string }[],
+  summaries: { number: number; title: string; user: { login: string } | null; head: { ref: string }; base: { ref: string }; draft?: boolean; updated_at: string }[],
 ): Promise<PullRequest[]> {
   return Promise.all(
     summaries.map(async (pr) => {
@@ -82,6 +87,8 @@ async function detailsOf(
         title: pr.title,
         author: pr.user?.login ?? '—',
         branch: pr.head.ref,
+        baseBranch: pr.base.ref,
+        draft: pr.draft ?? false,
         additions: data.additions,
         deletions: data.deletions,
         updatedAt: pr.updated_at,

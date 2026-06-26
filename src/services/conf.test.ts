@@ -50,6 +50,8 @@ describe('prsCache (issue #9)', () => {
         title: 't',
         author: 'rafa',
         branch: 'b',
+        baseBranch: 'main',
+        draft: false,
         additions: 1,
         deletions: 0,
         updatedAt: '2026-06-20T10:00:00Z',
