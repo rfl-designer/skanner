@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   bodyFromPatch,
   detectedLayers,
+  isBinaryContent,
+  preserveCursor,
   synthesizeAddition,
   toLocalStatus,
   trackedDiffFile,
@@ -27,9 +29,27 @@ describe('synthesizeAddition — untracked como bloco todo-adições', () => {
   });
 });
 
-describe('untrackedDiffFile — arquivo novo vira DiffFile todo-adições', () => {
-  it('status added, corpo patch sintetizado, url null', () => {
-    const file = untrackedDiffFile('database/migrations/2026_create_x_table.php', '<?php\nreturn 1;\n');
+describe('isBinaryContent — byte nulo marca não-texto (heurística do git)', () => {
+  it('conteúdo com \\0 é binário', () => {
+    expect(isBinaryContent(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]))).toBe(true);
+  });
+
+  it('\\0 no meio do texto também conta', () => {
+    expect(isBinaryContent(Buffer.from('a\0b', 'utf8'))).toBe(true);
+  });
+
+  it('texto puro (sem \\0) não é binário', () => {
+    expect(isBinaryContent(Buffer.from('<?php\nreturn 1;\n', 'utf8'))).toBe(false);
+  });
+
+  it('conteúdo vazio não é binário', () => {
+    expect(isBinaryContent(Buffer.alloc(0))).toBe(false);
+  });
+});
+
+describe('untrackedDiffFile — arquivo novo vira DiffFile', () => {
+  it('texto: status added, corpo patch sintetizado, url null', () => {
+    const file = untrackedDiffFile('database/migrations/2026_create_x_table.php', Buffer.from('<?php\nreturn 1;\n', 'utf8'));
     expect(file).toEqual<DiffFile>({
       path: 'database/migrations/2026_create_x_table.php',
       status: { kind: 'added' },
@@ -38,8 +58,18 @@ describe('untrackedDiffFile — arquivo novo vira DiffFile todo-adições', () =
     });
   });
 
+  it('binário (PNG novo com \\0): status added mas corpo binary, sem sintetizar adições', () => {
+    const file = untrackedDiffFile('public/logo.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x1a]));
+    expect(file).toEqual<DiffFile>({
+      path: 'public/logo.png',
+      status: { kind: 'added' },
+      body: { kind: 'binary' },
+      url: null,
+    });
+  });
+
   it('arquivo novo vazio: ainda é added, com patch vazio', () => {
-    const file = untrackedDiffFile('.gitkeep', '');
+    const file = untrackedDiffFile('.gitkeep', Buffer.alloc(0));
     expect(file.status).toEqual({ kind: 'added' });
     expect(file.body).toEqual({ kind: 'patch', patch: '' });
   });
@@ -110,6 +140,31 @@ describe('trackedDiffFile — rastreado vira DiffFile (status + corpo)', () => {
     const file = trackedDiffFile({ path: 'new', index: 'R', workingDir: ' ', from: 'old' }, raw);
     expect(file.status).toEqual({ kind: 'renamed', from: 'old' });
     expect(file.body).toEqual({ kind: 'none' });
+  });
+});
+
+describe('preserveCursor — reselecionar por caminho após reload preservado (#37)', () => {
+  const files = (...paths: string[]) => paths.map((path) => ({ path }));
+
+  it('caminho ainda presente: índice dele, mesmo que tenha mudado de posição', () => {
+    expect(preserveCursor('b.ts', 1, files('b.ts', 'a.ts', 'c.ts'))).toBe(0);
+  });
+
+  it('caminho ainda no mesmo lugar: mesmo índice', () => {
+    expect(preserveCursor('a.ts', 0, files('a.ts', 'b.ts'))).toBe(0);
+  });
+
+  it('caminho sumiu: cai no vizinho (prevIndex clampado, o que escorregou pra cá)', () => {
+    // selecionado 'b.ts' (índice 1) foi removido → índice 1 agora é 'c.ts'.
+    expect(preserveCursor('b.ts', 1, files('a.ts', 'c.ts', 'd.ts'))).toBe(1);
+  });
+
+  it('caminho sumiu e era o último: clampa ao novo último', () => {
+    expect(preserveCursor('d.ts', 3, files('a.ts', 'b.ts'))).toBe(1);
+  });
+
+  it('sem seleção anterior (prevPath null): clampa o índice', () => {
+    expect(preserveCursor(null, 0, files('a.ts'))).toBe(0);
   });
 });
 

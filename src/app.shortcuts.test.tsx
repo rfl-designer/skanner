@@ -8,8 +8,10 @@ import { isIgnoredPath } from './core/watch.js';
 // Mocka as views pesadas (Working diff / PRs), o serviço de override e o de watch:
 // o foco é a fiação dos atalhos globais (#11) e do auto-watch (#15) — máquina de
 // estados do shell, sem fs nem rede.
-const { workingMounts, saveOverride, watchMock, unsub } = vi.hoisted(() => ({
+type ReloadProp = { nonce: number; preserve: boolean };
+const { workingMounts, lastReload, saveOverride, watchMock, unsub } = vi.hoisted(() => ({
   workingMounts: { count: 0 },
+  lastReload: { value: null as ReloadProp | null },
   saveOverride: vi.fn(),
   watchMock: vi.fn(),
   unsub: vi.fn(),
@@ -18,11 +20,13 @@ const { workingMounts, saveOverride, watchMock, unsub } = vi.hoisted(() => ({
 vi.mock('./services/repo.js', () => ({ saveOverride }));
 vi.mock('./services/watch.js', () => ({ watch: watchMock }));
 vi.mock('./views/working-diff.js', () => ({
-  WorkingDiffView: ({ repo }: { repo: ResolvedRepo }) => {
-    // Conta montagens: `[r]` remonta a view (= recarrega o snapshot).
+  WorkingDiffView: ({ repo, reload }: { repo: ResolvedRepo; reload?: ReloadProp }) => {
+    // Conta montagens (deve ficar em 1: o reload agora é in-place, sem remontar, #37)
+    // e grava a prop `reload` recebida, p/ provar o gatilho ([r] vs auto-watch).
     React.useEffect(() => {
       workingMounts.count += 1;
     }, []);
+    lastReload.value = reload ?? null;
     return <Text>working perfil={repo.profile} dir={repo.modularBaseDir}</Text>;
   },
 }));
@@ -54,6 +58,7 @@ let triggerWatch: (relPath: string) => void = () => {};
 
 beforeEach(() => {
   workingMounts.count = 0;
+  lastReload.value = null;
   saveOverride.mockReset();
   watchMock.mockReset();
   unsub.mockReset();
@@ -77,14 +82,15 @@ describe('App — atalhos globais (#11)', () => {
     unmount();
   });
 
-  it('[r] recarrega o Working diff (remonta a view)', async () => {
+  it('[r] recarrega o Working diff in-place (bump do reload, preserve=false)', async () => {
     const { stdin, unmount } = render(<App repo={repo} />);
     await tick();
-    expect(workingMounts.count).toBe(1);
+    expect(lastReload.value).toEqual({ nonce: 0, preserve: false });
 
     stdin.write('r');
     await tick();
-    expect(workingMounts.count).toBe(2);
+    expect(lastReload.value).toEqual({ nonce: 1, preserve: false }); // [r] reseta ao topo
+    expect(workingMounts.count).toBe(1); // in-place: não remonta (#37)
     unmount();
   });
 
@@ -161,19 +167,19 @@ describe('App — auto-watch (#15)', () => {
   it('AC1: com auto-watch ligado, um evento de watch recarrega sem input do usuário', async () => {
     const { stdin, unmount } = render(<App repo={repo} />);
     await tick();
-    expect(workingMounts.count).toBe(1); // monta uma vez
+    expect(lastReload.value).toEqual({ nonce: 0, preserve: false });
 
     stdin.write('w'); // liga o auto-watch → o effect assina o watcher
     await tick();
     expect(watchMock).toHaveBeenCalledWith('/tmp/fake-repo', expect.any(Function));
-    expect(workingMounts.count).toBe(1); // ligar não remonta por si
 
-    // Um evento de arquivo de código (não-ignorado) → bump do nonce → remonta.
+    // Um evento de arquivo de código (não-ignorado) → bump do reload PRESERVANDO (#37).
     await act(async () => {
       triggerWatch('app/Contexts/Crm/Models/Lead.php');
     });
     await tick();
-    expect(workingMounts.count).toBe(2); // recarregou sem nenhum input
+    expect(lastReload.value).toEqual({ nonce: 1, preserve: true }); // recarregou sem input, preservando
+    expect(workingMounts.count).toBe(1); // in-place: não remonta (#37)
 
     unmount();
   });
@@ -183,14 +189,14 @@ describe('App — auto-watch (#15)', () => {
     await tick();
     stdin.write('w');
     await tick();
-    expect(workingMounts.count).toBe(1);
+    expect(lastReload.value).toEqual({ nonce: 0, preserve: false });
 
     await act(async () => {
       triggerWatch('vendor/autoload.php');
       triggerWatch('node_modules/react/index.js');
     });
     await tick();
-    expect(workingMounts.count).toBe(1); // ruído não dispara re-render
+    expect(lastReload.value).toEqual({ nonce: 0, preserve: false }); // ruído não bumpa o reload
 
     unmount();
   });
@@ -217,12 +223,12 @@ describe('App — auto-watch (#15)', () => {
   it('AC3: com auto-watch desligado, o [r] manual continua recarregando (não regride #14)', async () => {
     const { stdin, unmount } = render(<App repo={repo} />);
     await tick();
-    expect(workingMounts.count).toBe(1);
+    expect(lastReload.value).toEqual({ nonce: 0, preserve: false });
     expect(watchMock).not.toHaveBeenCalled(); // desligado: nenhum watcher ativo
 
     stdin.write('r');
     await tick();
-    expect(workingMounts.count).toBe(2); // refresh manual intacto
+    expect(lastReload.value).toEqual({ nonce: 1, preserve: false }); // refresh manual intacto
 
     unmount();
   });

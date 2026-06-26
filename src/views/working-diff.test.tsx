@@ -9,7 +9,7 @@ const { diff } = vi.hoisted(() => ({ diff: vi.fn() }));
 vi.mock('../services/local.js', () => ({ diff }));
 vi.mock('cli-highlight', () => ({ highlight: (code: string) => code }));
 
-import { WorkingDiffView } from './working-diff.js';
+import { WorkingDiffView, type Reload } from './working-diff.js';
 
 const modularRepo: ResolvedRepo = {
   root: '/repo',
@@ -148,6 +148,84 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
     expect(frame).toContain('Migration');
     expect(frame).toContain('Model');
     expect(frame).not.toContain('Sem contexto'); // flat não tem nível de grupo
+    unmount();
+  });
+});
+
+// Ordem do multiLayer (modular, contexto Crm): migration antes de model (LAYER_ORDER).
+// Logo arquivo 1 = …/2026_create_contacts_table.php, arquivo 2 = …/Models/Contact.php.
+describe('WorkingDiffView — reload preservado vs manual (#37)', () => {
+  const noPreserve = (nonce: number): Reload => ({ nonce, preserve: false });
+  const preserve = (nonce: number): Reload => ({ nonce, preserve: true });
+
+  it('auto-watch preserva o cursor por caminho: não joga o dono de volta ao topo', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, rerender, unmount } = render(
+      <WorkingDiffView repo={modularRepo} reload={noPreserve(0)} />,
+    );
+    await tick();
+    stdin.write('\x1B[B'); // desce para o arquivo 2 (Contact.php)
+    await tick();
+    expect(lastFrame()).toContain('arquivo 2/2');
+
+    // Save em background: mesmo change-set, reload PRESERVANDO. O cursor fica no 2.
+    rerender(<WorkingDiffView repo={modularRepo} reload={preserve(1)} />);
+    await tick();
+    expect(lastFrame()).toContain('arquivo 2/2');
+    expect(lastFrame()).toContain('Contact.php');
+    unmount();
+  });
+
+  it('[r] manual (preserve=false) reseta ao topo mesmo após navegar', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, rerender, unmount } = render(
+      <WorkingDiffView repo={modularRepo} reload={noPreserve(0)} />,
+    );
+    await tick();
+    stdin.write('\x1B[B');
+    await tick();
+    expect(lastFrame()).toContain('arquivo 2/2');
+
+    rerender(<WorkingDiffView repo={modularRepo} reload={noPreserve(1)} />);
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/2'); // de volta ao topo
+    unmount();
+  });
+
+  it('por caminho: arquivo selecionado mudou de posição → cursor o segue', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, rerender, unmount } = render(
+      <WorkingDiffView repo={modularRepo} reload={noPreserve(0)} />,
+    );
+    await tick();
+    stdin.write('\x1B[B'); // Contact.php (arquivo 2)
+    await tick();
+
+    // Recarrega só com o Contact.php (a migration saiu do change-set): ele agora é
+    // o índice 0, e o cursor preservado por caminho pousa nele.
+    diff.mockResolvedValue([multiLayer[0]]);
+    rerender(<WorkingDiffView repo={modularRepo} reload={preserve(1)} />);
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/1');
+    expect(lastFrame()).toContain('Contact.php');
+    unmount();
+  });
+
+  it('arquivo selecionado sumiu → cai no vizinho (não crasha)', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, rerender, unmount } = render(
+      <WorkingDiffView repo={modularRepo} reload={noPreserve(0)} />,
+    );
+    await tick();
+    stdin.write('\x1B[B'); // Contact.php (arquivo 2, índice 1)
+    await tick();
+
+    // Recarrega só com a migration (Contact.php sumiu): clampa ao vizinho disponível.
+    diff.mockResolvedValue([multiLayer[1]]);
+    rerender(<WorkingDiffView repo={modularRepo} reload={preserve(1)} />);
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/1');
+    expect(lastFrame()).toContain('2026_create_contacts_table.php');
     unmount();
   });
 });
