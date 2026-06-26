@@ -22,6 +22,7 @@ const repo = (identity: ResolvedRepo['identity']): ResolvedRepo => ({
   profile: 'modular',
   modularBaseDir: 'app/Contexts',
   source: { profile: 'auto' },
+  autoWatch: false,
 });
 
 describe('prKey — chave repo+PR (PRD §5)', () => {

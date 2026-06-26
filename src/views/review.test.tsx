@@ -20,6 +20,7 @@ const repo: ResolvedRepo = {
   profile: 'modular',
   modularBaseDir: 'app/Contexts',
   source: { profile: 'auto' },
+  autoWatch: false,
 };
 
 const tick = async () => {
@@ -39,6 +40,7 @@ const flatRepo: ResolvedRepo = {
   profile: 'flat',
   modularBaseDir: 'app/Contexts',
   source: { profile: 'auto' },
+  autoWatch: false,
 };
 
 const flatDiff: PrDiff = {
