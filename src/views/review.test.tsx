@@ -6,7 +6,9 @@ import type { PrDiff } from '../services/pr.js';
 // Mocka os serviços e o highlight: a view é testada como máquina de estados, sem
 // rede/fs e sem ANSI de sintaxe poluindo o frame.
 const { diff } = vi.hoisted(() => ({ diff: vi.fn() }));
+const { getState, setState } = vi.hoisted(() => ({ getState: vi.fn(), setState: vi.fn() }));
 vi.mock('../services/pr.js', () => ({ diff }));
+vi.mock('../services/review.js', () => ({ getState, setState }));
 vi.mock('cli-highlight', () => ({ highlight: (code: string) => code }));
 
 import { ReviewView } from './review.js';
@@ -58,6 +60,9 @@ const modularDiff: PrDiff = {
 
 beforeEach(() => {
   diff.mockReset();
+  getState.mockReset();
+  setState.mockReset();
+  getState.mockReturnValue({ checked: {}, updatedAt: '' });
 });
 
 describe('ReviewView — máquina de estados', () => {
@@ -186,6 +191,63 @@ describe('ReviewView — diff e navegação (AC5)', () => {
     await tick();
 
     expect(onBack).toHaveBeenCalled();
+    unmount();
+  });
+});
+
+describe('ReviewView — checklist de review (#7)', () => {
+  const CONTACT = 'app/Contexts/Crm/Models/Contact.php';
+
+  it('[espaço] marca o arquivo atual; o agregado da camada/feature muda e persiste', async () => {
+    diff.mockResolvedValue(modularDiff);
+    const { lastFrame, stdin, unmount } = render(
+      <ReviewView repo={repo} number={42} onBack={noop} />,
+    );
+    await tick();
+    // 1º arquivo na ordem da árvore = Crm/Models/Contact.php.
+    expect(lastFrame()).toContain('revisados 0/4');
+
+    stdin.write(' '); // marca revisado
+    await tick();
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('revisados 1/4');
+    expect(frame).toContain('✓'); // arquivo revisado ganha o check
+    // persiste via serviço, chaveado por repo+PR.
+    expect(setState).toHaveBeenCalledTimes(1);
+    const [calledKey, calledState] = setState.mock.calls[0];
+    expect(calledKey).toBe('rfl-designer/concilliun-crm#42');
+    expect(calledState.checked).toEqual({ [CONTACT]: true });
+    expect(typeof calledState.updatedAt).toBe('string');
+    unmount();
+  });
+
+  it('carrega o estado persistido ao abrir a PR (sobrevive a reabrir)', async () => {
+    diff.mockResolvedValue(modularDiff);
+    getState.mockReturnValue({ checked: { [CONTACT]: true }, updatedAt: '2026-06-25T00:00:00Z' });
+    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={42} onBack={noop} />);
+    await tick();
+
+    expect(getState).toHaveBeenCalledWith('rfl-designer/concilliun-crm#42');
+    expect(lastFrame()).toContain('revisados 1/4');
+    expect(lastFrame()).toContain('✓');
+    unmount();
+  });
+
+  it('[espaço] de novo desmarca o arquivo (toggle)', async () => {
+    diff.mockResolvedValue(modularDiff);
+    const { lastFrame, stdin, unmount } = render(
+      <ReviewView repo={repo} number={42} onBack={noop} />,
+    );
+    await tick();
+
+    stdin.write(' ');
+    await tick();
+    expect(lastFrame()).toContain('revisados 1/4');
+
+    stdin.write(' ');
+    await tick();
+    expect(lastFrame()).toContain('revisados 0/4');
     unmount();
   });
 });

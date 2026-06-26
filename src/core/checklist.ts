@@ -7,7 +7,7 @@
  */
 
 import type { ResolvedRepo } from './repo.js';
-import type { Context, Layer, ReviewTree } from './review.js';
+import type { Context, Layer, LayerGroup, ReviewTree } from './review.js';
 
 /**
  * Estado do checklist de UMA PR, como persiste no `conf` (PRD §5). `checked` é um
@@ -45,6 +45,24 @@ export function checkedRecord(checked: ReadonlySet<string>): Record<string, true
 export interface CountProgress {
   reviewed: number;
   total: number;
+}
+
+/**
+ * Conta revisados/total de um conjunto de camadas — o nível do meio da árvore,
+ * comum aos perfis modular e flat. Uniforme para qualquer recorte: a árvore toda
+ * (geral), as camadas de um contexto, ou uma única camada (`[layer]`). É a regra
+ * de agregação do checklist (#7); vive no coração, a view só desenha.
+ */
+export function progressOf(layers: LayerGroup[], checked: ReadonlySet<string>): CountProgress {
+  let reviewed = 0;
+  let total = 0;
+  for (const lg of layers) {
+    for (const file of lg.files) {
+      total += 1;
+      if (checked.has(file.path)) reviewed += 1;
+    }
+  }
+  return { reviewed, total };
 }
 
 /** Progresso de uma camada dentro de uma feature. */
