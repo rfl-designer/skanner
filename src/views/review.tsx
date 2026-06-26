@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { highlight } from 'cli-highlight';
 import { diff } from '../services/pr.js';
+import * as review from '../services/review.js';
 import {
   groupReview,
   LAYER_LABEL,
@@ -10,6 +11,7 @@ import {
   type GroupedReview,
   type LayerGroup,
 } from '../core/review.js';
+import { checkedRecord, checkedSet, prKey, progressOf } from '../core/checklist.js';
 import type { ResolvedRepo } from '../core/repo.js';
 
 /**
@@ -21,7 +23,10 @@ import type { ResolvedRepo } from '../core/repo.js';
  * Navegação básica próximo/anterior (atalhos ricos são da #11).
  *
  * Máquina de estados: loading → (empty | error | ready). Sem regra de domínio
- * inline — categorização e árvore moram no núcleo; aqui só estado e desenho.
+ * inline — categorização, árvore e o agregado do checklist moram no núcleo; aqui só
+ * estado e desenho. O checklist (#7) carrega do `conf` ao abrir a PR (serviço
+ * `review.getState`) e persiste a cada `[espaço]` (`review.setState`); o agregado
+ * revisado/total por camada/contexto vem do núcleo (`progressOf`).
  */
 type ReviewState =
   | { status: 'loading' }
@@ -39,6 +44,15 @@ interface ReviewViewProps {
 export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const [state, setState] = useState<ReviewState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+
+  // Chave repo+PR do checklist; `null` em repo local-only (sem PR a persistir).
+  const key = prKey(repo, number);
+
+  // Carrega o checklist persistido ao abrir/reabrir a PR (PRD §6.3).
+  useEffect(() => {
+    setChecked(key === null ? new Set() : checkedSet(review.getState(key)));
+  }, [key]);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,9 +65,9 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
           setState({ status: 'empty' });
           return;
         }
-        const review = groupReview(pr.files, repo.profile);
-        const files = flatten(review);
-        setState({ status: 'ready', review, files });
+        const grouped = groupReview(pr.files, repo.profile);
+        const files = flatten(grouped);
+        setState({ status: 'ready', review: grouped, files });
       })
       .catch((err: unknown) => {
         if (!cancelled) setState({ status: 'error', error: message(err) });
@@ -64,15 +78,29 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   }, [repo, number]);
 
   const fileCount = state.status === 'ready' ? state.files.length : 0;
-  useInput((input, key) => {
-    if (key.escape || input === 'b') {
+
+  /** Alterna "revisado" no arquivo sob o cursor e persiste no `conf` (#7). */
+  function toggleReviewed() {
+    if (state.status !== 'ready' || key === null) return;
+    const path = state.files[Math.min(cursor, state.files.length - 1)].path;
+    const next = new Set(checked);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setChecked(next);
+    review.setState(key, { checked: checkedRecord(next), updatedAt: new Date().toISOString() });
+  }
+
+  useInput((input, inputKey) => {
+    if (inputKey.escape || input === 'b') {
       onBack();
       return;
     }
     if (fileCount === 0) return;
-    if (key.downArrow || input === 'j' || input === 'n') {
+    if (input === ' ') {
+      toggleReviewed();
+    } else if (inputKey.downArrow || input === 'j' || input === 'n') {
       setCursor((c) => Math.min(c + 1, fileCount - 1));
-    } else if (key.upArrow || input === 'k' || input === 'p') {
+    } else if (inputKey.upArrow || input === 'k' || input === 'p') {
       setCursor((c) => Math.max(c - 1, 0));
     }
   });
@@ -100,68 +128,102 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   }
 
   const selected = state.files[Math.min(cursor, state.files.length - 1)];
+  const overall = progressOf(allLayers(state.review), checked);
   return (
     <Box flexDirection="column">
       <Text>
         <Text color="yellow">PR #{number}</Text>
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
+        <Text dimColor> · revisados {overall.reviewed}/{overall.total}</Text>
       </Text>
       <Box marginTop={1} flexDirection="row" gap={2}>
-        <Tree review={state.review} selectedPath={selected.path} />
+        <Tree review={state.review} checked={checked} selectedPath={selected.path} />
         <Box flexDirection="column" flexShrink={1}>
           <Text dimColor>{selected.path}</Text>
           <DiffBody file={selected} />
         </Box>
       </Box>
-      <Text dimColor>[↑/↓] arquivo · [esc] voltar</Text>
+      <Text dimColor>[↑/↓] arquivo · [espaço] revisado · [esc] voltar</Text>
     </Box>
   );
 }
 
 /**
- * Árvore de navegação com o cursor marcado. Modular: Contexto → Camada → arquivo.
- * Flat: só Camada → arquivo, SEM o cabeçalho de grupo (PRD §4.0 estratégia 3).
+ * Árvore de navegação com o cursor marcado, o ✓ no arquivo revisado e o agregado
+ * revisado/total por contexto e por camada (#7). Modular: Contexto → Camada →
+ * arquivo. Flat: só Camada → arquivo, SEM o cabeçalho de grupo (PRD §4.0
+ * estratégia 3). As contagens vêm do núcleo (`progressOf`), por nó.
  */
-function Tree({ review, selectedPath }: { review: GroupedReview; selectedPath: string }) {
+function Tree({
+  review,
+  checked,
+  selectedPath,
+}: {
+  review: GroupedReview;
+  checked: ReadonlySet<string>;
+  selectedPath: string;
+}) {
   if (review.profile === 'flat') {
     return (
       <Box flexDirection="column">
-        <LayerList layers={review.layers} selectedPath={selectedPath} />
+        <LayerList layers={review.layers} checked={checked} selectedPath={selectedPath} />
       </Box>
     );
   }
   return (
     <Box flexDirection="column">
-      {review.groups.map((group) => (
-        <Box key={group.context ?? NO_CONTEXT_LABEL} flexDirection="column">
-          <Text bold color="cyan">
-            {group.context ?? NO_CONTEXT_LABEL}
-          </Text>
-          <LayerList layers={group.layers} selectedPath={selectedPath} />
-        </Box>
-      ))}
+      {review.groups.map((group) => {
+        const ctx = progressOf(group.layers, checked);
+        return (
+          <Box key={group.context ?? NO_CONTEXT_LABEL} flexDirection="column">
+            <Text bold color="cyan">
+              {group.context ?? NO_CONTEXT_LABEL} ({ctx.reviewed}/{ctx.total})
+            </Text>
+            <LayerList layers={group.layers} checked={checked} selectedPath={selectedPath} />
+          </Box>
+        );
+      })}
     </Box>
   );
 }
 
-/** Nível Camada → arquivo, compartilhado pelos perfis modular e flat. */
-function LayerList({ layers, selectedPath }: { layers: LayerGroup[]; selectedPath: string }) {
+/**
+ * Nível Camada → arquivo, compartilhado pelos perfis modular e flat. Mostra o
+ * agregado revisado/total da camada e o ✓ no arquivo revisado (#7).
+ */
+function LayerList({
+  layers,
+  checked,
+  selectedPath,
+}: {
+  layers: LayerGroup[];
+  checked: ReadonlySet<string>;
+  selectedPath: string;
+}) {
   return (
     <>
-      {layers.map((layer) => (
-        <Box key={layer.layer} flexDirection="column">
-          <Text dimColor> {LAYER_LABEL[layer.layer]}</Text>
-          {layer.files.map((file) => {
-            const here = file.path === selectedPath;
-            return (
-              <Text key={file.path} color={here ? 'green' : undefined}>
-                {here ? ' › ' : '   '}
-                {basename(file.path)}
-              </Text>
-            );
-          })}
-        </Box>
-      ))}
+      {layers.map((layer) => {
+        const lp = progressOf([layer], checked);
+        return (
+          <Box key={layer.layer} flexDirection="column">
+            <Text dimColor>
+              {' '}
+              {LAYER_LABEL[layer.layer]} ({lp.reviewed}/{lp.total})
+            </Text>
+            {layer.files.map((file) => {
+              const here = file.path === selectedPath;
+              const done = checked.has(file.path);
+              return (
+                <Text key={file.path} color={here ? 'green' : undefined}>
+                  {here ? ' › ' : '   '}
+                  {done ? '✓ ' : '  '}
+                  {basename(file.path)}
+                </Text>
+              );
+            })}
+          </Box>
+        );
+      })}
     </>
   );
 }
@@ -221,8 +283,12 @@ function languageOf(path: string): string | undefined {
 }
 
 function flatten(review: GroupedReview): ChangedFile[] {
-  const layers = review.profile === 'flat' ? review.layers : review.groups.flatMap((g) => g.layers);
-  return layers.flatMap((l) => l.files);
+  return allLayers(review).flatMap((l) => l.files);
+}
+
+/** Camadas da review, achatadas (flat: diretas; modular: de todos os contextos). */
+function allLayers(review: GroupedReview): LayerGroup[] {
+  return review.profile === 'flat' ? review.layers : review.groups.flatMap((g) => g.layers);
 }
 
 function basename(path: string): string {

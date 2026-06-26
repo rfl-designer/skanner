@@ -3,11 +3,13 @@ import envPaths from 'env-paths';
 import type { RepoOverride } from '../core/repo.js';
 import type { PrFilters } from '../core/filterPrs.js';
 import type { CachedList } from './prs.js';
+import type { ReviewState } from '../core/checklist.js';
 
 /**
  * Módulo de serviço `conf` (PRD §5): o store JSON local. A issue #3 só **lê** o
  * mapa `path → overrides`; a issue #9 adiciona a **escrita** do cache da lista de
- * PRs (`prsCache`, keyed `owner/name`). O PAT continua fora daqui (arquivo
+ * PRs (`prsCache`, keyed `owner/name`), a #10 os filtros (`prFilters`), e a #7 o
+ * checklist de review (chave `review`, por PR). O PAT continua fora daqui (arquivo
  * `0600`, ver `auth.ts`) — só metadados de PR, nunca segredo.
  *
  * `SKANNER_CONFIG_DIR` sobrepõe o dir (mesmo idioma do `auth.ts`) — os testes
@@ -21,6 +23,8 @@ interface SkannerStore {
   prsCache: Record<string, CachedList>;
   /** Filtros da lista de PRs lembrados por repo (issue #10), keyed `owner/name`. */
   prFilters: Record<string, PrFilters>;
+  /** Checklist de review por PR (issue #7), keyed `owner/name#pr`. */
+  review: Record<string, ReviewState>;
 }
 
 function configDir(): string {
@@ -74,4 +78,24 @@ export function writePrFilters(key: string, filters: PrFilters): void {
   const conf = store();
   const all = conf.get('prFilters') ?? {};
   conf.set('prFilters', { ...all, [key]: filters });
+}
+
+/**
+ * Estado do checklist da PR `prKey` no mapa `review` (PRD §5), ou `undefined`
+ * quando a PR nunca foi revisada — leitura sem efeito colateral (sem `defaults`).
+ */
+export function readReview(prKey: string): ReviewState | undefined {
+  return store().get('review')?.[prKey];
+}
+
+/**
+ * Persiste o estado do checklist sob a chave `prKey` no mapa `review`, preservando
+ * as demais PRs (read-merge-write da chave inteira — os componentes de `prKey`
+ * contêm `/`, `#`, `.`, então notação por ponto do `conf` não serve).
+ */
+export function writeReview(prKey: string, state: ReviewState): void {
+  const conf = store();
+  const review = conf.get('review') ?? {};
+  review[prKey] = state;
+  conf.set('review', review);
 }
