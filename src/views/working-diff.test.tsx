@@ -5,8 +5,19 @@ import type { DiffFile } from '../core/diff.js';
 
 // Mocka o serviço e o highlight: a view é testada como máquina de estados, sem
 // git/fs/rede e sem ANSI de sintaxe poluindo o frame.
-const { diff } = vi.hoisted(() => ({ diff: vi.fn() }));
-vi.mock('../services/local.js', () => ({ diff }));
+const { diff, stagedPaths, stage, unstage, stagedDiff, commit } = vi.hoisted(() => ({
+  diff: vi.fn(),
+  stagedPaths: vi.fn(),
+  stage: vi.fn(),
+  unstage: vi.fn(),
+  stagedDiff: vi.fn(),
+  commit: vi.fn(),
+}));
+vi.mock('../services/local.js', () => ({ diff, stagedPaths, stage, unstage, stagedDiff, commit }));
+const { generate } = vi.hoisted(() => ({ generate: vi.fn() }));
+vi.mock('../services/commit-message.js', () => ({ generate }));
+const { issueBody } = vi.hoisted(() => ({ issueBody: vi.fn() }));
+vi.mock('../services/issue.js', () => ({ issueBody }));
 vi.mock('cli-highlight', () => ({ highlight: (code: string) => code }));
 
 import { WorkingDiffView, type Reload } from './working-diff.js';
@@ -68,6 +79,13 @@ const twoHunks: DiffFile[] = [
 
 beforeEach(() => {
   diff.mockReset();
+  stagedPaths.mockReset().mockResolvedValue(new Set());
+  stage.mockReset().mockResolvedValue(undefined);
+  unstage.mockReset().mockResolvedValue(undefined);
+  stagedDiff.mockReset().mockResolvedValue('PATCH');
+  commit.mockReset().mockResolvedValue(undefined);
+  generate.mockReset().mockResolvedValue({ kind: 'ok', message: 'miolo gerado' });
+  issueBody.mockReset().mockResolvedValue(null);
 });
 
 describe('WorkingDiffView — máquina de estados', () => {
@@ -304,6 +322,113 @@ describe('WorkingDiffView — seleção múltipla (#46)', () => {
     rerender(<WorkingDiffView repo={modularRepo} reload={{ nonce: 1, preserve: true }} />);
     await tick();
     expect(lastFrame()).not.toContain('✓'); // some ao recarregar
+    unmount();
+  });
+});
+
+describe('WorkingDiffView — portão de commit (#47)', () => {
+  const MARKED = 'app/Models/Plan.php'; // único arquivo do twoHunks
+
+  // Conduz o portão até o preview: marca, [c], escolhe feat (1), digita issue, enter.
+  const driveToPreview = async (stdin: { write: (s: string) => void }, issue: string) => {
+    stdin.write(' '); // marca o arquivo
+    await tick();
+    stdin.write('c'); // abre o portão (type)
+    await tick();
+    stdin.write('1'); // feat → fase issue
+    await tick();
+    stdin.write(issue);
+    await tick();
+    stdin.write('\r'); // submete → runGate
+    await tick();
+    await tick();
+  };
+
+  it('[c] sem nada marcado não abre o portão', async () => {
+    diff.mockResolvedValue(twoHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    stdin.write('c');
+    await tick();
+    expect(lastFrame()).not.toContain('Tipo do commit');
+    expect(lastFrame()).toContain('arquivo 1/1'); // segue na navegação normal
+    unmount();
+  });
+
+  it('fluxo feliz: marca → [c] → feat → issue → gera → preview → commita', async () => {
+    diff.mockResolvedValue(twoHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    await driveToPreview(stdin, '46');
+
+    // stageou só o marcado, ANTES de gerar; a IA recebeu o diff staged.
+    expect(stage).toHaveBeenCalledWith('/repo', [MARKED]);
+    expect(stagedDiff).toHaveBeenCalledWith('/repo', [MARKED]);
+    expect(lastFrame()).toContain('feat(#46): miolo gerado');
+
+    stdin.write('\r'); // commita
+    await tick();
+    expect(commit).toHaveBeenCalledWith('/repo', expect.stringContaining('feat(#46): miolo gerado'));
+    unmount();
+  });
+
+  it('issue puxa o corpo do GitHub e injeta no prompt da IA', async () => {
+    diff.mockResolvedValue(twoHunks);
+    issueBody.mockResolvedValue('PORQUE_DA_ISSUE');
+    const { stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    await driveToPreview(stdin, '46');
+    expect(issueBody).toHaveBeenCalledWith(expect.anything(), 46);
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining('PORQUE_DA_ISSUE') }),
+    );
+    unmount();
+  });
+
+  it('[esc] no preview cancela e desfaz só o que stageou (reset seguro)', async () => {
+    diff.mockResolvedValue(twoHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    await driveToPreview(stdin, '46');
+    stdin.write('\x1B'); // esc
+    await tick();
+    expect(unstage).toHaveBeenCalledWith('/repo', [MARKED]); // desfaz o staging do portão
+    expect(commit).not.toHaveBeenCalled();
+    expect(lastFrame()).toContain('arquivo 1/1'); // volta à navegação
+    unmount();
+  });
+
+  it('armadilha do reset: path já staged ANTES do portão não é desfeito no cancelamento', async () => {
+    diff.mockResolvedValue(twoHunks);
+    stagedPaths.mockResolvedValue(new Set([MARKED])); // o dono já tinha staged
+    const { stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    await driveToPreview(stdin, '46');
+    stdin.write('\x1B'); // esc cancela
+    await tick();
+    expect(unstage).toHaveBeenCalledWith('/repo', []); // nada a desfazer: não destrói trabalho do dono
+    unmount();
+  });
+
+  it('falha da IA degrada para o preview manual com o prefixo montado', async () => {
+    diff.mockResolvedValue(twoHunks);
+    generate.mockResolvedValue({ kind: 'failed', reason: 'claude não encontrado no PATH' });
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    await driveToPreview(stdin, '46');
+    expect(lastFrame()).toContain('IA indisponível');
+    expect(lastFrame()).toContain('feat(#46):'); // prefixo já montado pelo código
+    unmount();
+  });
+
+  it('campo vazio = sem issue: prefixo tipo: sem (#NN)', async () => {
+    diff.mockResolvedValue(twoHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    await driveToPreview(stdin, ''); // sem issue
+    expect(issueBody).not.toHaveBeenCalled();
+    expect(lastFrame()).toContain('feat: miolo gerado');
+    expect(lastFrame()).not.toContain('feat(#');
     unmount();
   });
 });
