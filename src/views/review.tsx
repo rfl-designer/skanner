@@ -3,20 +3,22 @@ import { Box, Text, useInput } from 'ink';
 import { highlight } from 'cli-highlight';
 import { diff } from '../services/pr.js';
 import {
-  buildReviewTree,
+  groupReview,
   LAYER_LABEL,
   NO_CONTEXT_LABEL,
   type ChangedFile,
-  type ReviewTree,
+  type GroupedReview,
+  type LayerGroup,
 } from '../core/review.js';
 import type { ResolvedRepo } from '../core/repo.js';
 
 /**
  * Tela **Review da PR** (modo remoto, PRD §6.3). Abre uma PR como fatia vertical:
- * busca o diff (serviço `pr.diff`), delega o agrupamento ao núcleo
- * (`buildReviewTree`) e renderiza a árvore Contexto → Camada → arquivo + o diff
- * unified do arquivo selecionado (render próprio em Ink + highlight via
- * `cli-highlight`). Navegação básica próximo/anterior (atalhos ricos são da #11).
+ * busca o diff (serviço `pr.diff`), delega o agrupamento ao núcleo (`groupReview`,
+ * que despacha pelo perfil do repo) e renderiza a árvore Contexto → Camada → arquivo
+ * (modular) ou só Camada → arquivo (flat, sem o nível de grupo) + o diff unified do
+ * arquivo selecionado (render próprio em Ink + highlight via `cli-highlight`).
+ * Navegação básica próximo/anterior (atalhos ricos são da #11).
  *
  * Máquina de estados: loading → (empty | error | ready). Sem regra de domínio
  * inline — categorização e árvore moram no núcleo; aqui só estado e desenho.
@@ -25,7 +27,7 @@ type ReviewState =
   | { status: 'loading' }
   | { status: 'empty' }
   | { status: 'error'; error: string }
-  | { status: 'ready'; tree: ReviewTree; files: ChangedFile[] };
+  | { status: 'ready'; review: GroupedReview; files: ChangedFile[] };
 
 interface ReviewViewProps {
   repo: ResolvedRepo;
@@ -49,9 +51,9 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
           setState({ status: 'empty' });
           return;
         }
-        const tree = buildReviewTree(pr.files);
-        const files = flatten(tree);
-        setState({ status: 'ready', tree, files });
+        const review = groupReview(pr.files, repo.profile);
+        const files = flatten(review);
+        setState({ status: 'ready', review, files });
       })
       .catch((err: unknown) => {
         if (!cancelled) setState({ status: 'error', error: message(err) });
@@ -105,7 +107,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
       </Text>
       <Box marginTop={1} flexDirection="row" gap={2}>
-        <Tree tree={state.tree} selectedPath={selected.path} />
+        <Tree review={state.review} selectedPath={selected.path} />
         <Box flexDirection="column" flexShrink={1}>
           <Text dimColor>{selected.path}</Text>
           <DiffBody file={selected} />
@@ -116,32 +118,51 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   );
 }
 
-/** Árvore de navegação Contexto → Camada → arquivo, com o cursor marcado. */
-function Tree({ tree, selectedPath }: { tree: ReviewTree; selectedPath: string }) {
+/**
+ * Árvore de navegação com o cursor marcado. Modular: Contexto → Camada → arquivo.
+ * Flat: só Camada → arquivo, SEM o cabeçalho de grupo (PRD §4.0 estratégia 3).
+ */
+function Tree({ review, selectedPath }: { review: GroupedReview; selectedPath: string }) {
+  if (review.profile === 'flat') {
+    return (
+      <Box flexDirection="column">
+        <LayerList layers={review.layers} selectedPath={selectedPath} />
+      </Box>
+    );
+  }
   return (
     <Box flexDirection="column">
-      {tree.groups.map((group) => (
+      {review.groups.map((group) => (
         <Box key={group.context ?? NO_CONTEXT_LABEL} flexDirection="column">
           <Text bold color="cyan">
             {group.context ?? NO_CONTEXT_LABEL}
           </Text>
-          {group.layers.map((layer) => (
-            <Box key={layer.layer} flexDirection="column">
-              <Text dimColor> {LAYER_LABEL[layer.layer]}</Text>
-              {layer.files.map((file) => {
-                const here = file.path === selectedPath;
-                return (
-                  <Text key={file.path} color={here ? 'green' : undefined}>
-                    {here ? ' › ' : '   '}
-                    {basename(file.path)}
-                  </Text>
-                );
-              })}
-            </Box>
-          ))}
+          <LayerList layers={group.layers} selectedPath={selectedPath} />
         </Box>
       ))}
     </Box>
+  );
+}
+
+/** Nível Camada → arquivo, compartilhado pelos perfis modular e flat. */
+function LayerList({ layers, selectedPath }: { layers: LayerGroup[]; selectedPath: string }) {
+  return (
+    <>
+      {layers.map((layer) => (
+        <Box key={layer.layer} flexDirection="column">
+          <Text dimColor> {LAYER_LABEL[layer.layer]}</Text>
+          {layer.files.map((file) => {
+            const here = file.path === selectedPath;
+            return (
+              <Text key={file.path} color={here ? 'green' : undefined}>
+                {here ? ' › ' : '   '}
+                {basename(file.path)}
+              </Text>
+            );
+          })}
+        </Box>
+      ))}
+    </>
   );
 }
 
@@ -199,8 +220,9 @@ function languageOf(path: string): string | undefined {
   return undefined;
 }
 
-function flatten(tree: ReviewTree): ChangedFile[] {
-  return tree.groups.flatMap((g) => g.layers.flatMap((l) => l.files));
+function flatten(review: GroupedReview): ChangedFile[] {
+  const layers = review.profile === 'flat' ? review.layers : review.groups.flatMap((g) => g.layers);
+  return layers.flatMap((l) => l.files);
 }
 
 function basename(path: string): string {
