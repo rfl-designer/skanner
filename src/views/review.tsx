@@ -203,15 +203,17 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const onDiff = focus === 'diff';
   return (
     <Box flexDirection="column">
-      <Text>
-        <Text color="yellow">PR #{number}</Text>
+      <Text wrap="truncate-end">
+        <Text color="yellow" bold>
+          PR #{number}
+        </Text>
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
         <Text dimColor> · revisados {overall.reviewed}/{overall.total}</Text>
       </Text>
       <Box marginTop={1} flexDirection="row" gap={2}>
         {!expanded && <Tree review={state.review} checked={checked} selectedPath={selected.path} />}
         <Box flexDirection="column" flexShrink={1}>
-          <Text>
+          <Text wrap="truncate-start">
             {selected.status.kind === 'renamed' ? (
               <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
                 {selected.status.from} → {selected.path}
@@ -232,7 +234,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
           <FileDiff file={selected} expanded={expanded} scrollTop={safeScroll} maxRows={maxRows} />
         </Box>
       </Box>
-      <Text dimColor>
+      <Text dimColor wrap="truncate-end">
         {onDiff
           ? '[j/k] rolar · [J/K] bloco · [h] sidebar · [espaço] revisado · [tab] dobrar · [?] ajuda · [esc] voltar'
           : '[j/k] arquivo · ]/[ grupo · [l] diff · [espaço] revisado · [tab] expandir · [?] ajuda · [esc] voltar'}
@@ -376,7 +378,7 @@ function LayerList({
               const here = file.path === selectedPath;
               const done = checked.has(file.path);
               return (
-                <Text key={file.path} color={here ? 'green' : undefined}>
+                <Text key={file.path} color={here ? 'green' : undefined} bold={here} wrap="truncate-end">
                   {here ? ' › ' : '   '}
                   {done ? '✓ ' : '  '}
                   {basename(file.path)}

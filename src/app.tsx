@@ -128,12 +128,23 @@ export function App({ repo: initialRepo }: { repo: ResolvedRepo }) {
         <Text color="cyan" bold>
           Skanner
         </Text>
-        <Text>{'   '}</Text>
-        {openPr === null ? <Tabs active={tab} /> : <Text color="green">Review</Text>}
+        <Text dimColor>{'  ·  '}</Text>
+        {openPr === null ? (
+          <Tabs active={tab} />
+        ) : (
+          <Text>
+            <Text color="green" bold>
+              ● Review
+            </Text>
+            <Text dimColor> #{openPr}</Text>
+          </Text>
+        )}
       </Box>
       {openPr === null && tab === 'local' ? <ProfileLine repo={repo} editing={editing} onCommit={commitEdit} onChange={setEditing} /> : null}
       {openPr === null ? (
-        <Text dimColor>{footer({ capturing, editing: editing !== null, tab, autoWatch: repo.autoWatch })}</Text>
+        <Text dimColor wrap="truncate-end">
+          {footer({ capturing, editing: editing !== null, tab, autoWatch: repo.autoWatch })}
+        </Text>
       ) : null}
 
       <Box marginTop={1}>
@@ -165,7 +176,7 @@ function ProfileLine({
 }) {
   if (editing === null) {
     return (
-      <Text dimColor>
+      <Text dimColor wrap="truncate-end">
         perfil {repo.profile} · {repo.modularBaseDir}
       </Text>
     );
@@ -217,13 +228,20 @@ function Shortcut({ keys, desc }: { keys: string; desc: string }) {
 function Tabs({ active }: { active: Tab }) {
   return (
     <Box>
-      <Text color={active === 'local' ? 'green' : undefined} bold={active === 'local'}>
-        Working diff
-      </Text>
-      <Text dimColor>{'  |  '}</Text>
-      <Text color={active === 'prs' ? 'green' : undefined} bold={active === 'prs'}>
-        PRs
-      </Text>
+      <Tab label="Working diff" active={active === 'local'} />
+      <Text dimColor>{'   '}</Text>
+      <Tab label="PRs" active={active === 'prs'} />
     </Box>
+  );
+}
+
+/** Uma aba: ativa ganha marcador cheio + verde/bold; inativa fica esmaecida. */
+function Tab({ label, active }: { label: string; active: boolean }) {
+  return active ? (
+    <Text color="green" bold>
+      ● {label}
+    </Text>
+  ) : (
+    <Text dimColor>○ {label}</Text>
   );
 }

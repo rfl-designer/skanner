@@ -7,6 +7,11 @@ import type { ChangedFile } from '../core/review.js';
  * Altura do viewport do diff em linhas, derivada das `rows` do terminal com folga
  * para cabeçalho, rótulo do arquivo, indicadores de scroll e rodapé. Fallback 24
  * (terminal sem `rows`, ex.: testes) — o diff inteiro raramente excede isso.
+ *
+ * Responsividade (uso em tmux): a folga é a única conta de altura; a largura é
+ * tratada por truncamento ANSI-aware (`wrap="truncate-*"`) nas linhas, então cada
+ * linha de diff ocupa exatamente uma linha de tela mesmo em painel estreito — sem
+ * quebra que estoure o viewport ao reduzir a coluna.
  */
 export function useDiffViewport(): number {
   const { stdout } = useStdout();
@@ -68,12 +73,18 @@ export function FileDiff({
       const end = maxRows === undefined ? lines.length : Math.min(lines.length, top + maxRows);
       return (
         <Box flexDirection="column">
-          {top > 0 ? <Text dimColor>↑ {top} linha{top > 1 ? 's' : ''} acima</Text> : null}
+          {top > 0 ? (
+            <Text color="cyan" dimColor>
+              ▲ {top} linha{top > 1 ? 's' : ''} acima
+            </Text>
+          ) : null}
           {lines.slice(top, end).map((line, i) => (
             <DiffLine key={top + i} line={line} lang={lang} />
           ))}
           {end < lines.length ? (
-            <Text dimColor>↓ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo</Text>
+            <Text color="cyan" dimColor>
+              ▼ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo
+            </Text>
           ) : null}
         </Box>
       );
@@ -82,14 +93,35 @@ export function FileDiff({
 }
 
 function DiffLine({ line, lang }: { line: string; lang: string | undefined }) {
-  if (line.startsWith('@@')) return <Text color="cyan">{line}</Text>;
+  // `truncate-end`: cada linha ocupa UMA linha de tela mesmo em painel estreito
+  // (tmux) — sem quebra que estoure o viewport. Marcador +/− em bold p/ contraste.
+  if (line.startsWith('@@'))
+    return (
+      <Text color="cyan" bold wrap="truncate-end">
+        {line}
+      </Text>
+    );
   if (line.startsWith('+')) {
-    return <Text color="green">+{paint(line.slice(1), lang)}</Text>;
+    return (
+      <Text color="green" wrap="truncate-end">
+        <Text bold>+</Text>
+        {paint(line.slice(1), lang)}
+      </Text>
+    );
   }
   if (line.startsWith('-')) {
-    return <Text color="red">-{paint(line.slice(1), lang)}</Text>;
+    return (
+      <Text color="red" wrap="truncate-end">
+        <Text bold>-</Text>
+        {paint(line.slice(1), lang)}
+      </Text>
+    );
   }
-  return <Text dimColor>{paint(line, lang)}</Text>;
+  return (
+    <Text dimColor wrap="truncate-end">
+      {paint(line, lang)}
+    </Text>
+  );
 }
 
 /** Aplica o highlight de sintaxe, tolerando trechos parciais de hunk. */
