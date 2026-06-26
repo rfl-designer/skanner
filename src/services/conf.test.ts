@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   readOverride,
+  writeOverride,
   readPrsCache,
   writePrsCache,
   readPrFilters,
@@ -111,5 +112,34 @@ describe('prFilters (issue #10)', () => {
   it('repo sem filtros → null e ler não cria arquivo', () => {
     expect(readPrFilters('rfl-designer/skanner')).toBeNull();
     expect(existsSync(path.join(dir, 'config.json'))).toBe(false);
+  });
+});
+
+describe('writeOverride — edição inline do [m] (#11)', () => {
+  it('persiste o override por path e relê', () => {
+    writeOverride('/repo/a', { profile: 'modular', modularBaseDir: 'src/Modules' });
+
+    expect(readOverride('/repo/a')).toEqual({ profile: 'modular', modularBaseDir: 'src/Modules' });
+  });
+
+  it('funde com o que já existe na entrada (preserva owner/name)', async () => {
+    await writeStore({ '/repo/a': { owner: 'rfl-designer', name: 'soloboard' } });
+
+    writeOverride('/repo/a', { profile: 'flat', modularBaseDir: 'app/Contexts' });
+
+    expect(readOverride('/repo/a')).toEqual({
+      owner: 'rfl-designer',
+      name: 'soloboard',
+      profile: 'flat',
+      modularBaseDir: 'app/Contexts',
+    });
+  });
+
+  it('não vaza para outros repos do mapa', async () => {
+    await writeStore({ '/repo/b': { profile: 'modular' } });
+
+    writeOverride('/repo/a', { profile: 'flat' });
+
+    expect(readOverride('/repo/b')).toEqual({ profile: 'modular' });
   });
 });

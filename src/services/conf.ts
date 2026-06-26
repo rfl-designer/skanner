@@ -81,6 +81,19 @@ export function writePrFilters(key: string, filters: PrFilters): void {
 }
 
 /**
+ * Persiste a correção inline do `[m]` (issue #11) no mapa `path → overrides` sob a
+ * chave `root`, fundindo com o que já existe ali (read-merge-write da entrada) para
+ * preservar campos de outras issues (ex.: `owner`/`name` de fallback). O segredo/PAT
+ * vivem no `auth.ts` (arquivo `0600`), nunca neste store.
+ */
+export function writeOverride(root: string, override: RepoOverride): void {
+  const conf = store();
+  const overrides = conf.get('overrides') ?? {};
+  overrides[root] = { ...overrides[root], ...override };
+  conf.set('overrides', overrides);
+}
+
+/**
  * Estado do checklist da PR `prKey` no mapa `review` (PRD §5), ou `undefined`
  * quando a PR nunca foi revisada — leitura sem efeito colateral (sem `defaults`).
  */
