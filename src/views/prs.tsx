@@ -308,7 +308,7 @@ function PrList({
         visible.map((pr, i) => {
           const here = i === cursor;
           return (
-            <Text key={pr.number} color={here ? 'green' : undefined}>
+            <Text key={pr.number} color={here ? 'green' : undefined} wrap="truncate-end">
               {here ? '› ' : '  '}
               <Text color="yellow">#{pr.number}</Text> {pr.title}{' '}
               {pr.draft ? <Text color="magenta">[draft] </Text> : null}

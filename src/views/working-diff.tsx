@@ -429,14 +429,16 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   const onDiff = focus === 'diff';
   return (
     <Box flexDirection="column">
-      <Text>
-        <Text color="yellow">{layerHeader(state.layers)}</Text>
+      <Text wrap="truncate-end">
+        <Text color="yellow" bold>
+          {layerHeader(state.layers)}
+        </Text>
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
       </Text>
       <Box marginTop={1} flexDirection="row" gap={2}>
         {!expanded && <LocalTree review={state.review} selectedPath={selected.path} marked={marked} />}
         <Box flexDirection="column" flexShrink={1}>
-          <Text>
+          <Text wrap="truncate-start">
             {selected.status.kind === 'renamed' ? (
               <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
                 {selected.status.from} → {selected.path}
@@ -451,7 +453,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
           <FileDiff file={selected} expanded={expanded} scrollTop={safeScroll} maxRows={maxRows} />
         </Box>
       </Box>
-      <Text dimColor>
+      <Text dimColor wrap="truncate-end">
         {onDiff
           ? '[j/k] rolar · [J/K] bloco · [h] sidebar · [tab] dobrar'
           : `[j/k] arquivo · [l] diff · [espaço] marcar${marked.size > 0 ? ' · [c] commitar' : ''} · [tab] expandir`}
@@ -521,7 +523,7 @@ function LayerList({
             const here = file.path === selectedPath;
             const isMarked = marked.has(file.path);
             return (
-              <Text key={file.path} color={here ? 'green' : undefined}>
+              <Text key={file.path} color={here ? 'green' : undefined} bold={here} wrap="truncate-end">
                 {here ? ' › ' : '   '}
                 {isMarked ? '✓ ' : '  '}
                 {basename(file.path)}
