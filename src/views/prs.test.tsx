@@ -3,15 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedRepo } from '../core/repo.js';
 
 // Mocka os serviços: a view é testada como máquina de estados, sem rede/fs.
-const { authenticatedUser, setToken, clearToken, readCache, revalidate } = vi.hoisted(() => ({
-  authenticatedUser: vi.fn(),
-  setToken: vi.fn(),
-  clearToken: vi.fn(),
-  readCache: vi.fn(),
-  revalidate: vi.fn(),
-}));
+const { authenticatedUser, setToken, clearToken, readCache, revalidate, readFilters, writeFilters } =
+  vi.hoisted(() => ({
+    authenticatedUser: vi.fn(),
+    setToken: vi.fn(),
+    clearToken: vi.fn(),
+    readCache: vi.fn(),
+    revalidate: vi.fn(),
+    readFilters: vi.fn(),
+    writeFilters: vi.fn(),
+  }));
 vi.mock('../services/auth.js', () => ({ authenticatedUser, setToken, clearToken }));
-vi.mock('../services/prs.js', () => ({ readCache, revalidate }));
+vi.mock('../services/prs.js', () => ({ readCache, revalidate, readFilters, writeFilters }));
 
 const cachedList = (prs: unknown[], fetchedAt = new Date().toISOString()) => ({
   prs,
@@ -56,8 +59,11 @@ beforeEach(() => {
   clearToken.mockReset();
   readCache.mockReset();
   revalidate.mockReset();
+  readFilters.mockReset();
+  writeFilters.mockReset();
   readCache.mockReturnValue(null);
   revalidate.mockResolvedValue(cachedList([]));
+  readFilters.mockReturnValue(null);
 });
 
 describe('PrsView — auth lazy', () => {
@@ -199,6 +205,111 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     expect(lastFrame()).toContain('owner/name não resolvido');
     expect(revalidate).not.toHaveBeenCalled();
     expect(readCache).not.toHaveBeenCalled();
+    unmount();
+  });
+});
+
+describe('PrsView — filtros da lista (issue #10)', () => {
+  const mixed = [
+    pr(1, 'feat: fatia vertical', { author: 'rafa', baseBranch: 'main', draft: false }),
+    pr(2, 'fix: rate limit', { author: 'ana', baseBranch: 'develop', draft: true }),
+    pr(3, 'chore: bump deps', { author: 'rafa', baseBranch: 'develop', draft: false }),
+  ];
+
+  const renderAuthed = () => {
+    authenticatedUser.mockResolvedValue({ login: 'rafa' });
+    revalidate.mockResolvedValue(cachedList(mixed));
+    return render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+  };
+
+  it('[d] oculta drafts da lista renderizada', async () => {
+    const { lastFrame, stdin, unmount } = renderAuthed();
+    await tick();
+    expect(lastFrame()).toContain('#2'); // draft visível de início
+
+    stdin.write('d');
+    await tick();
+
+    const frame = lastFrame() ?? '';
+    expect(frame).not.toContain('#2');
+    expect(frame).toContain('#1');
+    expect(frame).toContain('#3');
+    unmount();
+  });
+
+  it('[a] cicla o autor e filtra a lista', async () => {
+    const { lastFrame, stdin, unmount } = renderAuthed();
+    await tick();
+
+    stdin.write('a'); // null → primeiro autor ('ana', ordenado)
+    await tick();
+    let frame = lastFrame() ?? '';
+    expect(frame).toContain('autor: ana');
+    expect(frame).toContain('#2');
+    expect(frame).not.toContain('#1');
+
+    stdin.write('a'); // 'ana' → 'rafa'
+    await tick();
+    frame = lastFrame() ?? '';
+    expect(frame).toContain('autor: rafa');
+    expect(frame).toContain('#1');
+    expect(frame).toContain('#3');
+    expect(frame).not.toContain('#2');
+    unmount();
+  });
+
+  it('[b] cicla a branch base e filtra a lista', async () => {
+    const { lastFrame, stdin, unmount } = renderAuthed();
+    await tick();
+
+    stdin.write('b'); // null → 'develop' (ordenado)
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('base: develop');
+    expect(frame).toContain('#2');
+    expect(frame).toContain('#3');
+    expect(frame).not.toContain('#1');
+    unmount();
+  });
+
+  it('[/] busca textual filtra por título e persiste no submit', async () => {
+    const { lastFrame, stdin, unmount } = renderAuthed();
+    await tick();
+
+    stdin.write('/'); // entra na busca
+    await tick();
+    stdin.write('bump');
+    await tick();
+    expect(lastFrame()).toContain('#3');
+    expect(lastFrame()).not.toContain('#1');
+
+    stdin.write('\r'); // submit persiste
+    await tick();
+    expect(writeFilters).toHaveBeenCalledWith(
+      githubRepo,
+      expect.objectContaining({ query: 'bump' }),
+    );
+    unmount();
+  }, 20000);
+
+  it('restaura os filtros persistidos por repo na 1ª pintura', async () => {
+    authenticatedUser.mockResolvedValue({ login: 'rafa' });
+    revalidate.mockResolvedValue(cachedList(mixed));
+    readFilters.mockReturnValue({
+      hideDrafts: false,
+      baseBranch: null,
+      author: 'ana',
+      query: '',
+    });
+
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    await tick();
+
+    const frame = lastFrame() ?? '';
+    expect(readFilters).toHaveBeenCalledWith(githubRepo);
+    expect(frame).toContain('autor: ana');
+    expect(frame).toContain('#2');
+    expect(frame).not.toContain('#1');
     unmount();
   });
 });

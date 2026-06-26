@@ -7,8 +7,20 @@ import {
   setToken,
   type GitHubUser,
 } from '../services/auth.js';
-import { readCache, revalidate, type PullRequest } from '../services/prs.js';
+import {
+  readCache,
+  revalidate,
+  readFilters,
+  writeFilters,
+  type PullRequest,
+} from '../services/prs.js';
 import { freshness } from '../core/freshness.js';
+import {
+  applyFilters,
+  hasActiveFilter,
+  NO_FILTERS,
+  type PrFilters,
+} from '../core/filterPrs.js';
 import type { ResolvedRepo } from '../core/repo.js';
 
 /**
@@ -34,6 +46,8 @@ interface PrsViewProps {
 export function PrsView({ repo, onCapturingChange }: PrsViewProps) {
   const [state, setState] = useState<AuthState>({ status: 'loading' });
   const [value, setValue] = useState('');
+  // A lista também captura digitação (busca textual): some os atalhos globais.
+  const [listCapturing, setListCapturing] = useState(false);
 
   // Ao entrar na aba: retoma a sessão a partir do PAT persistido (revalidando).
   useEffect(() => {
@@ -51,8 +65,8 @@ export function PrsView({ repo, onCapturingChange }: PrsViewProps) {
     };
   }, []);
 
-  // Enquanto digitamos o PAT, o shell precisa parar de tratar 'q' como "sair".
-  const capturing = state.status === 'prompt';
+  // Enquanto digitamos o PAT (ou a busca da lista), 'q' não pode encerrar.
+  const capturing = state.status === 'prompt' || listCapturing;
   useEffect(() => {
     onCapturingChange(capturing);
     return () => onCapturingChange(false);
@@ -96,7 +110,7 @@ export function PrsView({ repo, onCapturingChange }: PrsViewProps) {
         <Text dimColor>[c] trocar PAT · [x] limpar PAT</Text>
         {repo.identity.kind === 'github' ? (
           <Box marginTop={1}>
-            <PrList repo={repo} />
+            <PrList repo={repo} onCapturingChange={setListCapturing} />
           </Box>
         ) : (
           <Text color="yellow">owner/name não resolvido — repo local-only.</Text>
@@ -133,9 +147,30 @@ type ListState =
   | { status: 'empty'; fetchedAt: string | null }
   | { status: 'error'; error: string };
 
-function PrList({ repo }: { repo: ResolvedRepo }) {
+function PrList({
+  repo,
+  onCapturingChange,
+}: {
+  repo: ResolvedRepo;
+  onCapturingChange: (capturing: boolean) => void;
+}) {
   const [state, setState] = useState<ListState>({ status: 'loading' });
   const [nonce, setNonce] = useState(0);
+  // Filtros lembrados por repo (issue #10): restaura na montagem, persiste ao mudar.
+  const [filters, setFilters] = useState<PrFilters>(() => readFilters(repo) ?? NO_FILTERS);
+  // Modo de busca textual: enquanto ativo, captura digitação (some 'q'/'r'/atalhos).
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    onCapturingChange(searching);
+    return () => onCapturingChange(false);
+  }, [searching, onCapturingChange]);
+
+  // Toda mudança de filtro persiste no conf por repo, via serviço.
+  function updateFilters(next: PrFilters) {
+    setFilters(next);
+    writeFilters(repo, next);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -163,10 +198,31 @@ function PrList({ repo }: { repo: ResolvedRepo }) {
     };
   }, [repo, nonce]);
 
-  // [r] força a revalidação, exceto enquanto a primeira carga ainda roda.
+  // PRs disponíveis p/ derivar as opções de ciclagem (base/autor presentes).
+  const prs = state.status === 'ready' || state.status === 'revalidating' ? state.prs : [];
+  const baseBranches = [...new Set(prs.map((p) => p.baseBranch))].sort();
+  const authors = [...new Set(prs.map((p) => p.author))].sort();
+
+  // [d/b/a/] alternam os filtros; [/] entra na busca textual. Inativos na busca.
+  useInput(
+    (input) => {
+      if (input === 'd') updateFilters({ ...filters, hideDrafts: !filters.hideDrafts });
+      else if (input === 'b') updateFilters({ ...filters, baseBranch: cycle(filters.baseBranch, baseBranches) });
+      else if (input === 'a') updateFilters({ ...filters, author: cycle(filters.author, authors) });
+      else if (input === '/') setSearching(true);
+    },
+    { isActive: !searching && prs.length > 0 },
+  );
+
+  // [esc] cancela a busca textual (mantém o que já filtrou ao vivo).
+  useInput((_, key) => {
+    if (key.escape) setSearching(false);
+  }, { isActive: searching });
+
+  // [r] força a revalidação, exceto na 1ª carga ou enquanto digita a busca.
   useInput((input) => {
     if (input === 'r') setNonce((n) => n + 1);
-  }, { isActive: state.status !== 'loading' });
+  }, { isActive: state.status !== 'loading' && !searching });
 
   if (state.status === 'loading') {
     return <Text dimColor>carregando PRs abertas…</Text>;
@@ -190,22 +246,81 @@ function PrList({ repo }: { repo: ResolvedRepo }) {
     );
   }
 
+  const visible = applyFilters(state.prs, filters);
   return (
     <Box flexDirection="column">
-      {state.prs.map((pr) => (
-        <Text key={pr.number}>
-          <Text color="yellow">#{pr.number}</Text> {pr.title}{' '}
-          <Text dimColor>· @{pr.author} · {pr.branch} · </Text>
-          <Text color="green">+{pr.additions}</Text>
-          <Text dimColor>/</Text>
-          <Text color="red">-{pr.deletions}</Text>
-          <Text dimColor> · {pr.updatedAt.slice(0, 10)}</Text>
-        </Text>
-      ))}
+      <FilterBar
+        filters={filters}
+        searching={searching}
+        onQueryChange={(query) => setFilters({ ...filters, query })}
+        onQuerySubmit={(query) => {
+          updateFilters({ ...filters, query });
+          setSearching(false);
+        }}
+      />
+      {visible.length === 0 ? (
+        <Text dimColor>nenhuma PR com os filtros atuais.</Text>
+      ) : (
+        visible.map((pr) => (
+          <Text key={pr.number}>
+            <Text color="yellow">#{pr.number}</Text> {pr.title}{' '}
+            {pr.draft ? <Text color="magenta">[draft] </Text> : null}
+            <Text dimColor>· @{pr.author} · {pr.branch} → {pr.baseBranch} · </Text>
+            <Text color="green">+{pr.additions}</Text>
+            <Text dimColor>/</Text>
+            <Text color="red">-{pr.deletions}</Text>
+            <Text dimColor> · {pr.updatedAt.slice(0, 10)}</Text>
+          </Text>
+        ))
+      )}
       <FreshnessLine
         fetchedAt={state.fetchedAt}
         revalidating={state.status === 'revalidating'}
       />
+    </Box>
+  );
+}
+
+/** Próximo valor do ciclo `null → opções… → null` (filtro de base/autor). */
+function cycle(current: string | null, options: string[]): string | null {
+  if (options.length === 0) return null;
+  if (current === null) return options[0] ?? null;
+  const i = options.indexOf(current);
+  if (i === -1 || i === options.length - 1) return null;
+  return options[i + 1] ?? null;
+}
+
+/**
+ * Barra de filtros (issue #10): mostra o estado de cada eixo e suas teclas, e —
+ * em modo busca — o campo de texto do título. A regra de filtragem não mora aqui
+ * (é da função-coração `applyFilters`); a barra só reflete e edita o `PrFilters`.
+ */
+function FilterBar({
+  filters,
+  searching,
+  onQueryChange,
+  onQuerySubmit,
+}: {
+  filters: PrFilters;
+  searching: boolean;
+  onQueryChange: (query: string) => void;
+  onQuerySubmit: (query: string) => void;
+}) {
+  const active = hasActiveFilter(filters);
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text dimColor>
+        [d] drafts: {filters.hideDrafts ? 'ocultos' : 'todos'} · [b] base:{' '}
+        {filters.baseBranch ?? 'todas'} · [a] autor: {filters.author ?? 'todos'} · [/]
+        título: {filters.query.trim() || '—'}
+        {active ? <Text color="cyan"> · filtros ativos</Text> : null}
+      </Text>
+      {searching ? (
+        <Box>
+          <Text>buscar título: </Text>
+          <TextInput value={filters.query} onChange={onQueryChange} onSubmit={onQuerySubmit} />
+        </Box>
+      ) : null}
     </Box>
   );
 }
