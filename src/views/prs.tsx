@@ -41,9 +41,11 @@ interface PrsViewProps {
   repo: ResolvedRepo;
   /** Avisa o shell quando a view captura digitação (p/ desligar atalhos globais). */
   onCapturingChange: (capturing: boolean) => void;
+  /** Abre a review de uma PR (roteamento mora no `app.tsx`). */
+  onOpenPr: (number: number) => void;
 }
 
-export function PrsView({ repo, onCapturingChange }: PrsViewProps) {
+export function PrsView({ repo, onCapturingChange, onOpenPr }: PrsViewProps) {
   const [state, setState] = useState<AuthState>({ status: 'loading' });
   const [value, setValue] = useState('');
   // A lista também captura digitação (busca textual): some os atalhos globais.
@@ -110,7 +112,11 @@ export function PrsView({ repo, onCapturingChange }: PrsViewProps) {
         <Text dimColor>[c] trocar PAT · [x] limpar PAT</Text>
         {repo.identity.kind === 'github' ? (
           <Box marginTop={1}>
-            <PrList repo={repo} onCapturingChange={setListCapturing} />
+            <PrList
+              repo={repo}
+              onCapturingChange={setListCapturing}
+              onOpenPr={onOpenPr}
+            />
           </Box>
         ) : (
           <Text color="yellow">owner/name não resolvido — repo local-only.</Text>
@@ -150,9 +156,11 @@ type ListState =
 function PrList({
   repo,
   onCapturingChange,
+  onOpenPr,
 }: {
   repo: ResolvedRepo;
   onCapturingChange: (capturing: boolean) => void;
+  onOpenPr: (number: number) => void;
 }) {
   const [state, setState] = useState<ListState>({ status: 'loading' });
   const [nonce, setNonce] = useState(0);
@@ -160,6 +168,8 @@ function PrList({
   const [filters, setFilters] = useState<PrFilters>(() => readFilters(repo) ?? NO_FILTERS);
   // Modo de busca textual: enquanto ativo, captura digitação (some 'q'/'r'/atalhos).
   const [searching, setSearching] = useState(false);
+  // Cursor da lista visível (issue #5): navega e abre a review com [enter].
+  const [cursor, setCursor] = useState(0);
 
   useEffect(() => {
     onCapturingChange(searching);
@@ -174,6 +184,7 @@ function PrList({
 
   useEffect(() => {
     let cancelled = false;
+    setCursor(0);
     // Abertura instantânea: pinta o cache (se houver) e revalida em 2º plano.
     const cached = readCache(repo);
     setState(
@@ -202,6 +213,8 @@ function PrList({
   const prs = state.status === 'ready' || state.status === 'revalidating' ? state.prs : [];
   const baseBranches = [...new Set(prs.map((p) => p.baseBranch))].sort();
   const authors = [...new Set(prs.map((p) => p.author))].sort();
+  // Lista efetivamente exibida (após filtros): o cursor e o [enter] indexam ESTA.
+  const visible = applyFilters(prs, filters);
 
   // [d/b/a/] alternam os filtros; [/] entra na busca textual. Inativos na busca.
   useInput(
@@ -219,10 +232,21 @@ function PrList({
     if (key.escape) setSearching(false);
   }, { isActive: searching });
 
-  // [r] força a revalidação, exceto na 1ª carga ou enquanto digita a busca.
-  useInput((input) => {
-    if (input === 'r') setNonce((n) => n + 1);
-  }, { isActive: state.status !== 'loading' && !searching });
+  // [r] revalida; [↑/↓] move o cursor na lista visível; [enter] abre a review.
+  useInput(
+    (input, key) => {
+      if (input === 'r') {
+        setNonce((n) => n + 1);
+        return;
+      }
+      if (key.downArrow) setCursor((c) => Math.min(c + 1, Math.max(visible.length - 1, 0)));
+      else if (key.upArrow) setCursor((c) => Math.max(c - 1, 0));
+      else if (key.return && visible.length > 0) {
+        onOpenPr(visible[Math.min(cursor, visible.length - 1)].number);
+      }
+    },
+    { isActive: state.status !== 'loading' && !searching },
+  );
 
   if (state.status === 'loading') {
     return <Text dimColor>carregando PRs abertas…</Text>;
@@ -246,7 +270,6 @@ function PrList({
     );
   }
 
-  const visible = applyFilters(state.prs, filters);
   return (
     <Box flexDirection="column">
       <FilterBar
@@ -261,22 +284,27 @@ function PrList({
       {visible.length === 0 ? (
         <Text dimColor>nenhuma PR com os filtros atuais.</Text>
       ) : (
-        visible.map((pr) => (
-          <Text key={pr.number}>
-            <Text color="yellow">#{pr.number}</Text> {pr.title}{' '}
-            {pr.draft ? <Text color="magenta">[draft] </Text> : null}
-            <Text dimColor>· @{pr.author} · {pr.branch} → {pr.baseBranch} · </Text>
-            <Text color="green">+{pr.additions}</Text>
-            <Text dimColor>/</Text>
-            <Text color="red">-{pr.deletions}</Text>
-            <Text dimColor> · {pr.updatedAt.slice(0, 10)}</Text>
-          </Text>
-        ))
+        visible.map((pr, i) => {
+          const here = i === cursor;
+          return (
+            <Text key={pr.number} color={here ? 'green' : undefined}>
+              {here ? '› ' : '  '}
+              <Text color="yellow">#{pr.number}</Text> {pr.title}{' '}
+              {pr.draft ? <Text color="magenta">[draft] </Text> : null}
+              <Text dimColor>· @{pr.author} · {pr.branch} → {pr.baseBranch} · </Text>
+              <Text color="green">+{pr.additions}</Text>
+              <Text dimColor>/</Text>
+              <Text color="red">-{pr.deletions}</Text>
+              <Text dimColor> · {pr.updatedAt.slice(0, 10)}</Text>
+            </Text>
+          );
+        })
       )}
       <FreshnessLine
         fetchedAt={state.fetchedAt}
         revalidating={state.status === 'revalidating'}
       />
+      <Text dimColor>[↑/↓] navegar · [enter] abrir</Text>
     </Box>
   );
 }

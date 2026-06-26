@@ -72,7 +72,7 @@ describe('PrsView — auth lazy', () => {
     const onCapturing = vi.fn();
 
     const { lastFrame, unmount } = render(
-      <PrsView repo={githubRepo} onCapturingChange={onCapturing} />,
+      <PrsView repo={githubRepo} onCapturingChange={onCapturing} onOpenPr={noop} />,
     );
     await tick();
 
@@ -85,7 +85,7 @@ describe('PrsView — auth lazy', () => {
   it('com PAT válido persistido: retoma autenticado mostrando o usuário', async () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
 
-    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
     await tick();
 
     expect(lastFrame()).toContain('autenticado como rafa');
@@ -97,7 +97,7 @@ describe('PrsView — auth lazy', () => {
     clearToken.mockResolvedValue(undefined);
 
     const { lastFrame, stdin, unmount } = render(
-      <PrsView repo={githubRepo} onCapturingChange={noop} />,
+      <PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />,
     );
     await tick();
     expect(lastFrame()).toContain('autenticado como rafa');
@@ -116,7 +116,7 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
     revalidate.mockResolvedValue(cachedList([pr(42, 'feat: fatia vertical')]));
 
-    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
     await tick();
 
     const frame = lastFrame() ?? '';
@@ -138,7 +138,7 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     let resolveRevalidate: (v: unknown) => void = () => {};
     revalidate.mockReturnValue(new Promise((res) => (resolveRevalidate = res)));
 
-    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
     await tick();
 
     // Antes da rede responder, já mostra a lista cacheada + "revalidando…".
@@ -161,7 +161,7 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
     revalidate.mockResolvedValue(cachedList([]));
 
-    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
     await tick();
 
     expect(lastFrame()).toContain('nenhuma PR aberta');
@@ -172,7 +172,7 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
     revalidate.mockRejectedValue(new Error('sem rede'));
 
-    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
     await tick();
 
     expect(lastFrame()).toContain('erro: sem rede');
@@ -183,7 +183,7 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
     revalidate.mockResolvedValue(cachedList([]));
 
-    const { stdin, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    const { stdin, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
     await tick();
     expect(revalidate).toHaveBeenCalledTimes(1);
 
@@ -198,7 +198,7 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
 
     const { lastFrame, unmount } = render(
-      <PrsView repo={localOnlyRepo} onCapturingChange={noop} />,
+      <PrsView repo={localOnlyRepo} onCapturingChange={noop} onOpenPr={noop} />,
     );
     await tick();
 
@@ -219,7 +219,7 @@ describe('PrsView — filtros da lista (issue #10)', () => {
   const renderAuthed = () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
     revalidate.mockResolvedValue(cachedList(mixed));
-    return render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    return render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
   };
 
   it('[d] oculta drafts da lista renderizada', async () => {
@@ -302,7 +302,7 @@ describe('PrsView — filtros da lista (issue #10)', () => {
       query: '',
     });
 
-    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
     await tick();
 
     const frame = lastFrame() ?? '';
@@ -310,6 +310,23 @@ describe('PrsView — filtros da lista (issue #10)', () => {
     expect(frame).toContain('autor: ana');
     expect(frame).toContain('#2');
     expect(frame).not.toContain('#1');
+    unmount();
+  });
+
+  it('[enter] abre a review da PR selecionada (fiação)', async () => {
+    authenticatedUser.mockResolvedValue({ login: 'rafa' });
+    revalidate.mockResolvedValue(cachedList([pr(42, 'feat: fatia vertical')]));
+    const onOpenPr = vi.fn();
+
+    const { stdin, unmount } = render(
+      <PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={onOpenPr} />,
+    );
+    await tick();
+
+    stdin.write('\r'); // enter
+    await tick();
+
+    expect(onOpenPr).toHaveBeenCalledWith(42);
     unmount();
   });
 });
