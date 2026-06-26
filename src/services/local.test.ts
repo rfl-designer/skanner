@@ -3,13 +3,14 @@ import type { DiffFile } from '../core/diff.js';
 
 // Mocka simple-git e fs: o serviço é testado sem repo git real e sem fs real.
 // `add` é incluído só para PROVAR que nunca é chamado (index não é tocado).
-const { status, gitDiff, add } = vi.hoisted(() => ({
+const { status, gitDiff, add, revparse } = vi.hoisted(() => ({
   status: vi.fn(),
   gitDiff: vi.fn(),
   add: vi.fn(),
+  revparse: vi.fn(),
 }));
 vi.mock('simple-git', () => ({
-  simpleGit: vi.fn(() => ({ status, diff: gitDiff, add })),
+  simpleGit: vi.fn(() => ({ status, diff: gitDiff, add, revparse })),
 }));
 const { readFile } = vi.hoisted(() => ({ readFile: vi.fn() }));
 vi.mock('node:fs', () => ({ promises: { readFile } }));
@@ -27,6 +28,9 @@ beforeEach(() => {
   gitDiff.mockReset();
   add.mockReset();
   readFile.mockReset();
+  // Default: repo com HEAD (revparse resolve). O caso sem HEAD sobrescreve.
+  revparse.mockReset();
+  revparse.mockResolvedValue('deadbeef');
 });
 
 describe('local.diff — change-set não-commitado (staged+unstaged+untracked)', () => {
@@ -151,6 +155,30 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
     const files = await diff('/repo');
 
     expect(files[0].body).toEqual({ kind: 'binary' });
+  });
+
+  it('repo sem HEAD (zero commits): tudo é novo, sintetiza do fs sem git diff HEAD', async () => {
+    // revparse rejeita: "bad revision 'HEAD'" — repo recém-criado, antes do 1º commit.
+    revparse.mockRejectedValue(new Error("fatal: bad revision 'HEAD'"));
+    // Arquivo já staged (index 'A') mas sem commit base: o ramo rastreado chamaria
+    // `git diff HEAD` e quebraria; com #35 ele cai na síntese, igual ao untracked.
+    status.mockResolvedValue(statusResult([{ path: 'src/index.ts', index: 'A', working_dir: ' ' }]));
+    readFile.mockResolvedValue(Buffer.from('export const x = 1;\n', 'utf8'));
+
+    const files = await diff('/repo');
+
+    expect(files).toEqual<DiffFile[]>([
+      {
+        path: 'src/index.ts',
+        status: { kind: 'added' },
+        body: { kind: 'patch', patch: '@@ -0,0 +1,1 @@\n+export const x = 1;' },
+        url: null,
+      },
+    ]);
+    expect(readFile).toHaveBeenCalledWith('/repo/src/index.ts');
+    // O erro genérico não acontece: git diff HEAD nunca é chamado, e o index fica intocado.
+    expect(gitDiff).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
   });
 
   it('change-set vazio: lista vazia, sem ler fs nem git diff', async () => {
