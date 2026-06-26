@@ -9,7 +9,12 @@ import {
   type ReviewState,
 } from './checklist.js';
 
-const file = (path: string, patch: string | null = null): DiffFile => ({ path, patch });
+const file = (path: string): DiffFile => ({
+  path,
+  status: { kind: 'modified' },
+  body: { kind: 'none' },
+  url: null,
+});
 
 const repo = (identity: ResolvedRepo['identity']): ResolvedRepo => ({
   root: '/repo',

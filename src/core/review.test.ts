@@ -181,11 +181,17 @@ describe('buildFlatTree — árvore Camada → [arquivos] (perfil flat, #6)', ()
     expect(Object.keys(tree)).toEqual(['layers']);
   });
 
-  it('camadas vazias são omitidas e as folhas preservam path/patch', () => {
+  it('camadas vazias são omitidas e as folhas preservam o arquivo de diff + camada', () => {
     const tree = buildFlatTree([file('app/Models/Plan.php', '@@\n+x')]);
     expect(tree.layers).toHaveLength(1);
     expect(tree.layers[0].files).toEqual([
-      { path: 'app/Models/Plan.php', patch: '@@\n+x', layer: 'model' },
+      {
+        path: 'app/Models/Plan.php',
+        status: { kind: 'modified' },
+        body: { kind: 'patch', patch: '@@\n+x' },
+        url: null,
+        layer: 'model',
+      },
     ]);
   });
 });

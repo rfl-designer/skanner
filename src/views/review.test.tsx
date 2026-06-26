@@ -181,7 +181,7 @@ describe('ReviewView — diff e navegação (AC5)', () => {
     );
     await tick();
 
-    stdin.write('[B'); // seta para baixo
+    stdin.write('\x1B[B'); // seta para baixo
     await tick();
 
     expect(lastFrame()).toContain('arquivo 2/4');
@@ -194,7 +194,7 @@ describe('ReviewView — diff e navegação (AC5)', () => {
     const { stdin, unmount } = render(<ReviewView repo={repo} number={42} onBack={onBack} />);
     await tick();
 
-    stdin.write(''); // esc
+    stdin.write('\x1B'); // esc
     await tick();
 
     expect(onBack).toHaveBeenCalled();
