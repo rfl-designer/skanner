@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "cli-highlight": "^2.1.11",
     "conf": "^15.1.0",
     "env-paths": "^4.0.0",
     "ink": "^7.1.0",
