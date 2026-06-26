@@ -56,6 +56,16 @@ const multiLayer: DiffFile[] = [
   },
 ];
 
+// Arquivo com DOIS hunks, para exercitar a navegação por bloco ([j/k] no diff).
+const twoHunks: DiffFile[] = [
+  {
+    path: 'app/Models/Plan.php',
+    status: { kind: 'modified' },
+    body: patch('@@ -1,2 +1,2 @@\n-a\n+b\n@@ -10,2 +10,2 @@\n-c\n+d'),
+    url: null,
+  },
+];
+
 beforeEach(() => {
   diff.mockReset();
 });
@@ -164,6 +174,43 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
     stdin.write('\x1B[B'); // seta para baixo
     await tick();
     expect(lastFrame()).toContain('arquivo 2/2');
+    unmount();
+  });
+
+  it('[l] entra no diff e desdobra; [h] volta para a sidebar', async () => {
+    diff.mockResolvedValue(twoHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    expect(lastFrame()).toContain('[l] diff'); // foco inicial: sidebar
+    expect(lastFrame()).toContain('diff dobrado'); // entra colapsado
+
+    stdin.write('l'); // entra no diff (e desdobra)
+    await tick();
+    expect(lastFrame()).toContain('[h] sidebar'); // rodapé do diff
+    expect(lastFrame()).toContain('+b'); // conteúdo do 1º hunk visível
+    expect(lastFrame()).toContain('bloco 1/2');
+
+    stdin.write('h'); // volta para a sidebar
+    await tick();
+    expect(lastFrame()).toContain('[l] diff');
+    unmount();
+  });
+
+  it('[j/k] caminha entre os blocos quando o foco é o diff', async () => {
+    diff.mockResolvedValue(twoHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    stdin.write('l'); // foco no diff
+    await tick();
+    expect(lastFrame()).toContain('bloco 1/2');
+
+    stdin.write('j'); // próximo bloco
+    await tick();
+    expect(lastFrame()).toContain('bloco 2/2');
+
+    stdin.write('k'); // bloco anterior
+    await tick();
+    expect(lastFrame()).toContain('bloco 1/2');
     unmount();
   });
 

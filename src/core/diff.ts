@@ -134,3 +134,17 @@ export function badgesFor(file: Pick<DiffFile, 'status' | 'body'>): string[] {
 export function isOversized(body: DiffBody, ceiling: number = COLLAPSE_CEILING): boolean {
   return body.kind === 'patch' && body.patch.split('\n').length > ceiling;
 }
+
+/**
+ * Índices (0-based) das linhas que abrem um hunk (`@@ … @@`) no patch — as
+ * âncoras por onde o [j/k] salta no diff (navegação por bloco). Vazio quando o
+ * patch não tem cabeçalho de hunk (ex.: corpo já fatiado pelo serviço local).
+ */
+export function hunkStarts(patch: string): number[] {
+  const starts: number[] = [];
+  const lines = patch.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('@@')) starts.push(i);
+  }
+  return starts;
+}

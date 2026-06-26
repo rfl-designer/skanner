@@ -11,8 +11,9 @@ import {
   type LayerGroup,
 } from '../core/review.js';
 import { detectedLayers, preserveCursor } from '../core/local.js';
+import { hunkStarts } from '../core/diff.js';
 import type { ResolvedRepo } from '../core/repo.js';
-import { FileDiff, basename } from './diff-render.js';
+import { FileDiff, useDiffViewport, basename } from './diff-render.js';
 
 /**
  * Aba **Working diff** (modo local, CONTEXT.md §Modo local) — a tela inicial e o
@@ -50,18 +51,27 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   const [cursor, setCursor] = useState(0);
   // Arquivo entra colapsado; [tab] desdobra/dobra o diff do atual (reseta ao trocar).
   const [expanded, setExpanded] = useState(false);
+  // Foco entre painéis: [l] vai ao diff (e desdobra), [h] volta à sidebar.
+  const [focus, setFocus] = useState<'sidebar' | 'diff'>('sidebar');
+  // Bloco (hunk) em foco no diff; [j/k] caminha entre eles quando o foco é o diff.
+  const [hunkIdx, setHunkIdx] = useState(0);
+  const maxRows = useDiffViewport();
 
-  // Seleção atual (caminho + índice + expandido) num ref, para o reload preservado
-  // do auto-watch reposicionar por caminho SEM refazer o efeito a cada navegação.
-  const selection = useRef<{ path: string | null; index: number; expanded: boolean }>({
-    path: null,
-    index: 0,
-    expanded: false,
-  });
+  // Seleção atual (caminho + índice + estado de leitura) num ref, para o reload
+  // preservado do auto-watch reposicionar por caminho SEM refazer o efeito a cada navegação.
+  const selection = useRef<{
+    path: string | null;
+    index: number;
+    expanded: boolean;
+    focus: 'sidebar' | 'diff';
+    hunkIdx: number;
+  }>({ path: null, index: 0, expanded: false, focus: 'sidebar', hunkIdx: 0 });
   selection.current = {
     path: state.status === 'ready' ? state.files[Math.min(cursor, state.files.length - 1)]?.path ?? null : null,
     index: cursor,
     expanded,
+    focus,
+    hunkIdx,
   };
 
   useEffect(() => {
@@ -76,16 +86,20 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         if (files.length === 0) {
           setCursor(0);
           setExpanded(false);
+          setFocus('sidebar');
+          setHunkIdx(0);
           setState({ status: 'empty' });
           return;
         }
         const review = groupReview(files, repo.profile);
         const flat = flatten(review);
         const nextCursor = keep ? preserveCursor(keep.path, keep.index, flat) : 0;
-        // Mantém o expandido só se reaterrissou no MESMO arquivo; se caiu no vizinho, reseta.
+        // Mantém leitura/foco/bloco só se reaterrissou no MESMO arquivo; senão reseta.
         const samePath = keep !== null && flat[nextCursor]?.path === keep.path;
         setCursor(nextCursor);
         setExpanded(samePath ? keep.expanded : false);
+        setFocus(samePath ? keep.focus : 'sidebar');
+        setHunkIdx(samePath ? keep.hunkIdx : 0);
         setState({ status: 'ready', review, files: flat, layers: detectedLayers(files) });
       })
       .catch((err: unknown) => {
@@ -98,14 +112,26 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
 
   useInput((input, key) => {
     if (state.status !== 'ready') return;
-    if (key.downArrow || input === 'j') {
+    if (input === 'h') {
+      setFocus('sidebar');
+    } else if (input === 'l') {
+      setFocus('diff');
+      setExpanded(true);
+    } else if (key.tab) {
+      setExpanded((e) => !e);
+    } else if (focus === 'diff') {
+      const sel = state.files[Math.min(cursor, state.files.length - 1)];
+      const last = (sel.body.kind === 'patch' ? hunkStarts(sel.body.patch).length : 0) - 1;
+      if (key.downArrow || input === 'j') setHunkIdx((h) => Math.min(h + 1, Math.max(0, last)));
+      else if (key.upArrow || input === 'k') setHunkIdx((h) => Math.max(h - 1, 0));
+    } else if (key.downArrow || input === 'j') {
       setCursor((c) => Math.min(c + 1, state.files.length - 1));
       setExpanded(false);
+      setHunkIdx(0);
     } else if (key.upArrow || input === 'k') {
       setCursor((c) => Math.max(c - 1, 0));
       setExpanded(false);
-    } else if (key.tab) {
-      setExpanded((e) => !e);
+      setHunkIdx(0);
     }
   });
 
@@ -127,6 +153,10 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   }
 
   const selected = state.files[Math.min(cursor, state.files.length - 1)];
+  const hunks = selected.body.kind === 'patch' ? hunkStarts(selected.body.patch) : [];
+  const safeHunk = Math.min(hunkIdx, Math.max(0, hunks.length - 1));
+  const scrollTop = expanded && hunks.length > 0 ? hunks[safeHunk] : 0;
+  const onDiff = focus === 'diff';
   return (
     <Box flexDirection="column">
       <Text>
@@ -138,17 +168,22 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         <Box flexDirection="column" flexShrink={1}>
           <Text>
             {selected.status.kind === 'renamed' ? (
-              <Text dimColor>
+              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
                 {selected.status.from} → {selected.path}
               </Text>
             ) : (
-              <Text dimColor>{selected.path}</Text>
+              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
+                {selected.path}
+              </Text>
             )}
+            {onDiff && hunks.length > 1 ? <Text dimColor> · bloco {safeHunk + 1}/{hunks.length}</Text> : null}
           </Text>
-          <FileDiff file={selected} expanded={expanded} />
+          <FileDiff file={selected} expanded={expanded} scrollTop={scrollTop} maxRows={maxRows} />
         </Box>
       </Box>
-      <Text dimColor>[j/k] arquivo · [tab] expandir</Text>
+      <Text dimColor>
+        {onDiff ? '[j/k] bloco · [h] sidebar · [tab] dobrar' : '[j/k] arquivo · [l] diff · [tab] expandir'}
+      </Text>
     </Box>
   );
 }

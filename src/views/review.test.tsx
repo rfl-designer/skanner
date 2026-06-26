@@ -403,11 +403,13 @@ describe('ReviewView — diffs difíceis (AC1)', () => {
     const { lastFrame, stdin, unmount } = render(<ReviewView repo={repo} number={6} onBack={noop} />);
     await tick();
     expect(lastFrame()).toContain('expandir');
-    expect(lastFrame()).not.toContain('linha1999');
+    expect(lastFrame()).not.toContain('+linha0');
 
     stdin.write('\t');
     await tick();
-    expect(lastFrame()).toContain('linha1999');
+    expect(lastFrame()).toContain('+linha0'); // desdobra no topo do diff
+    expect(lastFrame()).not.toContain('linha1999'); // viewport: última linha fica fora da tela
+    expect(lastFrame()).toContain('abaixo'); // indicador de scroll
     unmount();
   });
 });
