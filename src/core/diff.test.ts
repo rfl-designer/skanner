@@ -5,6 +5,7 @@ import {
   hunkAt,
   hunkStarts,
   isOversized,
+  isViewable,
   maxScrollTop,
   nextHunkStart,
   prevHunkStart,
@@ -117,6 +118,23 @@ describe('isOversized — colapso por teto de linhas', () => {
     expect(isOversized({ kind: 'binary' })).toBe(false);
     expect(isOversized({ kind: 'truncated' })).toBe(false);
     expect(isOversized({ kind: 'none' })).toBe(false);
+  });
+});
+
+describe('isViewable — tem texto no disco p/ o modal de arquivo [z]', () => {
+  it('texto modificado/criado (corpo patch) é exibível', () => {
+    expect(isViewable({ status: { kind: 'modified' }, body: { kind: 'patch', patch: 'x' } })).toBe(true);
+    expect(isViewable({ status: { kind: 'added' }, body: { kind: 'patch', patch: 'x' } })).toBe(true);
+  });
+
+  it('deletado NÃO é exibível, mesmo com corpo patch (não há arquivo no disco)', () => {
+    expect(isViewable({ status: { kind: 'removed' }, body: { kind: 'patch', patch: '-x' } })).toBe(false);
+  });
+
+  it('binário, diretório colapsado (none) e truncado não são exibíveis', () => {
+    expect(isViewable({ status: { kind: 'modified' }, body: { kind: 'binary' } })).toBe(false);
+    expect(isViewable({ status: { kind: 'added' }, body: { kind: 'none' } })).toBe(false);
+    expect(isViewable({ status: { kind: 'modified' }, body: { kind: 'truncated' } })).toBe(false);
   });
 });
 

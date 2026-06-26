@@ -92,6 +92,17 @@ export async function diff(repoPath: string): Promise<DiffFile[]> {
 }
 
 /**
+ * Conteúdo de texto da working tree de `relPath` (utf8), para o **modal de arquivo
+ * completo** ([z], issue #53). Read-only — só lê o disco, nunca toca o index. É
+ * relido a cada abertura (sem cache); arquivo grande não é tratado aqui (o modal
+ * fatia o viewport). Falha (sumiu/virou diretório entre a triagem e o `z`:
+ * ENOENT/EISDIR) propaga — a view trata como no-op silencioso.
+ */
+export async function fileContent(repoPath: string, relPath: string): Promise<string> {
+  return fs.readFile(path.join(repoPath, relPath), 'utf8');
+}
+
+/**
  * Os paths atualmente staged no index (`git diff --cached --name-only`). O portão
  * captura isso ANTES de stagear a seleção, para no cancelamento resetar só o que
  * ele próprio stageou — nunca o que o dono já tinha staged (`pathsToReset`). #47.
