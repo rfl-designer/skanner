@@ -134,3 +134,12 @@ export function badgesFor(file: Pick<DiffFile, 'status' | 'body'>): string[] {
 export function isOversized(body: DiffBody, ceiling: number = COLLAPSE_CEILING): boolean {
   return body.kind === 'patch' && body.patch.split('\n').length > ceiling;
 }
+
+/**
+ * Estado de exibição com que um arquivo entra em cena: normal abre desdobrado
+ * (diff à mostra); gigante abre dobrado (placeholder), evitando o re-render
+ * pesado na TUI. O [tab] inverte; trocar de arquivo volta a este default.
+ */
+export function defaultExpanded(body: DiffBody): boolean {
+  return !isOversized(body);
+}

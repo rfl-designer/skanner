@@ -15,8 +15,8 @@ import type { ChangedFile } from '../core/review.js';
 /**
  * Corpo do arquivo como máquina sobre o `body` (PRD §6.5): binário e
  * renomeado-puro viram linha de status; truncado mostra aviso + URL no GitHub,
- * sem corpo; patch gigante abre colapsado (evita re-render pesado da TUI). Só o
- * patch (e expandido, se gigante) desenha hunks.
+ * sem corpo. Patch só desenha hunks quando `expanded`; dobrado vira placeholder
+ * ([tab] alterna), e o gigante entra dobrado por default (evita re-render pesado).
  */
 export function FileDiff({ file, expanded }: { file: ChangedFile; expanded: boolean }) {
   const body = file.body;
@@ -33,9 +33,12 @@ export function FileDiff({ file, expanded }: { file: ChangedFile; expanded: bool
         </Box>
       );
     case 'patch': {
-      if (isOversized(body) && !expanded) {
-        const lines = body.patch.split('\n').length;
-        return <Text dimColor>(arquivo grande: {lines} linhas — [tab] expandir)</Text>;
+      if (!expanded) {
+        if (isOversized(body)) {
+          const lines = body.patch.split('\n').length;
+          return <Text dimColor>(arquivo grande: {lines} linhas — [tab] expandir)</Text>;
+        }
+        return <Text dimColor>(diff dobrado — [tab] expandir)</Text>;
       }
       const lang = languageOf(file.path);
       return (

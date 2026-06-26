@@ -136,6 +136,23 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
     unmount();
   });
 
+  it('[tab] dobra/desdobra o diff de um arquivo normal', async () => {
+    diff.mockResolvedValue(multiLayer);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    expect(lastFrame()).toContain('+migration'); // normal abre desdobrado
+
+    stdin.write('\t'); // dobra
+    await tick();
+    expect(lastFrame()).not.toContain('+migration');
+    expect(lastFrame()).toContain('diff dobrado');
+
+    stdin.write('\t'); // desdobra
+    await tick();
+    expect(lastFrame()).toContain('+migration');
+    unmount();
+  });
+
   it('[↓] navega para o próximo arquivo', async () => {
     diff.mockResolvedValue(multiLayer);
     const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
