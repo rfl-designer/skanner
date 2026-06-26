@@ -235,21 +235,52 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
     unmount();
   });
 
-  it('[j/k] caminha entre os blocos quando o foco é o diff', async () => {
-    diff.mockResolvedValue(twoHunks);
+  // Dois hunks distantes (20 linhas cada): maiores que o viewport de teste (maxRows=15),
+  // para exercitar tanto a rolagem por linha [j/k] quanto o salto de bloco [J/K].
+  const a = Array.from({ length: 20 }, (_, i) => `+a${String(i + 1).padStart(2, '0')}`);
+  const b = Array.from({ length: 20 }, (_, i) => `+b${String(i + 1).padStart(2, '0')}`);
+  const farHunks: DiffFile[] = [
+    {
+      path: 'app/Models/Plan.php',
+      status: { kind: 'modified' },
+      body: patch(`@@ -1,20 +1,20 @@\n${a.join('\n')}\n@@ -40,20 +40,20 @@\n${b.join('\n')}`),
+      url: null,
+    },
+  ];
+
+  it('[J/K] saltam entre os blocos quando o foco é o diff', async () => {
+    diff.mockResolvedValue(farHunks);
     const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
     await tick();
     stdin.write('l'); // foco no diff
     await tick();
     expect(lastFrame()).toContain('bloco 1/2');
 
-    stdin.write('j'); // próximo bloco
+    stdin.write('J'); // próximo bloco
     await tick();
     expect(lastFrame()).toContain('bloco 2/2');
+    expect(lastFrame()).toContain('+b01'); // o 2º hunk subiu para o topo
 
-    stdin.write('k'); // bloco anterior
+    stdin.write('K'); // bloco anterior
     await tick();
     expect(lastFrame()).toContain('bloco 1/2');
+    unmount();
+  });
+
+  it('[j] rola linha-a-linha e alcança a cauda de um hunk maior que a tela (#scroll)', async () => {
+    diff.mockResolvedValue(farHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    stdin.write('l'); // foco no diff, desdobra
+    await tick();
+    expect(lastFrame()).toContain('+a01'); // topo
+    expect(lastFrame()).not.toContain('+b20'); // última linha fora da tela
+
+    for (let i = 0; i < 60; i++) {
+      stdin.write('j');
+      await tick();
+    }
+    expect(lastFrame()).toContain('+b20'); // a última linha ficou alcançável
     unmount();
   });
 

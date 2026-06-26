@@ -13,7 +13,7 @@ import {
   type LayerGroup,
 } from '../core/review.js';
 import { checkedRecord, checkedSet, prKey, progressOf } from '../core/checklist.js';
-import { badgesFor, hunkStarts } from '../core/diff.js';
+import { badgesFor, hunkStarts, hunkAt, maxScrollTop, nextHunkStart, prevHunkStart } from '../core/diff.js';
 import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
 import { FileDiff, useDiffViewport, basename } from './diff-render.js';
@@ -55,8 +55,8 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const [expanded, setExpanded] = useState(false);
   // Foco entre painéis: [l] vai ao diff (desdobra, esconde a sidebar), [h] volta (dobra).
   const [focus, setFocus] = useState<'sidebar' | 'diff'>('sidebar');
-  // Bloco (hunk) em foco no diff; [j/k] caminha entre eles quando o foco é o diff.
-  const [hunkIdx, setHunkIdx] = useState(0);
+  // Linha do topo do viewport do diff: [j/k] rolam linha-a-linha, [J/K] saltam de hunk.
+  const [scrollTop, setScrollTop] = useState(0);
   const maxRows = useDiffViewport();
   // [r] refaz a busca após erro recuperável (sem rede / falha genérica).
   const [nonce, setNonce] = useState(0);
@@ -77,7 +77,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     setCursor(0);
     setExpanded(false);
     setFocus('sidebar');
-    setHunkIdx(0);
+    setScrollTop(0);
     diff(repo, number)
       .then((pr) => {
         if (cancelled) return;
@@ -147,25 +147,30 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
       }
     } else if (focus === 'diff') {
       const sel = state.files[Math.min(cursor, state.files.length - 1)];
-      const last = (sel.body.kind === 'patch' ? hunkStarts(sel.body.patch).length : 0) - 1;
-      if (inputKey.downArrow || input === 'j' || input === 'n') setHunkIdx((h) => Math.min(h + 1, Math.max(0, last)));
-      else if (inputKey.upArrow || input === 'k' || input === 'p') setHunkIdx((h) => Math.max(h - 1, 0));
+      if (sel.body.kind === 'patch') {
+        const ceil = maxScrollTop(sel.body.patch.split('\n').length, maxRows);
+        const hunkLines = hunkStarts(sel.body.patch);
+        if (input === 'J') setScrollTop(Math.min(nextHunkStart(hunkLines, scrollTop), ceil));
+        else if (input === 'K') setScrollTop(prevHunkStart(hunkLines, scrollTop));
+        else if (inputKey.downArrow || input === 'j' || input === 'n') setScrollTop((s) => Math.min(s + 1, ceil));
+        else if (inputKey.upArrow || input === 'k' || input === 'p') setScrollTop((s) => Math.max(s - 1, 0));
+      }
     } else if (inputKey.downArrow || input === 'j' || input === 'n') {
       setCursor((c) => Math.min(c + 1, state.files.length - 1));
       setExpanded(false);
-      setHunkIdx(0);
+      setScrollTop(0);
     } else if (inputKey.upArrow || input === 'k' || input === 'p') {
       setCursor((c) => Math.max(c - 1, 0));
       setExpanded(false);
-      setHunkIdx(0);
+      setScrollTop(0);
     } else if (input === ']') {
       setCursor((c) => jumpGroup(starts, c, 'next'));
       setExpanded(false);
-      setHunkIdx(0);
+      setScrollTop(0);
     } else if (input === '[') {
       setCursor((c) => jumpGroup(starts, c, 'prev'));
       setExpanded(false);
-      setHunkIdx(0);
+      setScrollTop(0);
     }
   });
 
@@ -192,8 +197,9 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const overall = progressOf(allLayers(state.review), checked);
   const badges = badgesFor(selected);
   const hunks = selected.body.kind === 'patch' ? hunkStarts(selected.body.patch) : [];
-  const safeHunk = Math.min(hunkIdx, Math.max(0, hunks.length - 1));
-  const scrollTop = expanded && hunks.length > 0 ? hunks[safeHunk] : 0;
+  const totalLines = selected.body.kind === 'patch' ? selected.body.patch.split('\n').length : 0;
+  const safeScroll = expanded ? Math.min(scrollTop, maxScrollTop(totalLines, maxRows)) : 0;
+  const safeHunk = hunkAt(hunks, safeScroll);
   const onDiff = focus === 'diff';
   return (
     <Box flexDirection="column">
@@ -223,12 +229,12 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
             ))}
             {onDiff && hunks.length > 1 ? <Text dimColor> · bloco {safeHunk + 1}/{hunks.length}</Text> : null}
           </Text>
-          <FileDiff file={selected} expanded={expanded} scrollTop={scrollTop} maxRows={maxRows} />
+          <FileDiff file={selected} expanded={expanded} scrollTop={safeScroll} maxRows={maxRows} />
         </Box>
       </Box>
       <Text dimColor>
         {onDiff
-          ? '[j/k] bloco · [h] sidebar · [espaço] revisado · [tab] dobrar · [?] ajuda · [esc] voltar'
+          ? '[j/k] rolar · [J/K] bloco · [h] sidebar · [espaço] revisado · [tab] dobrar · [?] ajuda · [esc] voltar'
           : '[j/k] arquivo · ]/[ grupo · [l] diff · [espaço] revisado · [tab] expandir · [?] ajuda · [esc] voltar'}
       </Text>
     </Box>
@@ -282,7 +288,8 @@ function HelpSheet() {
       <Text bold color="cyan">
         Atalhos — Review
       </Text>
-      <Shortcut keys="↑/↓ j/k" desc="arquivo anterior/próximo (sidebar) · bloco anterior/próximo (diff)" />
+      <Shortcut keys="↑/↓ j/k" desc="arquivo anterior/próximo (sidebar) · rolar linha (diff)" />
+      <Shortcut keys="J/K" desc="bloco anterior/próximo (diff)" />
       <Shortcut keys="l / h" desc="entra no diff (desdobra) / volta à sidebar" />
       <Shortcut keys="] / [" desc="grupo próximo/anterior" />
       <Shortcut keys="espaço" desc="marca/desmarca revisado" />
