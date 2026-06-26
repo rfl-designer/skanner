@@ -37,7 +37,7 @@ export function App({ repo }: { repo: ResolvedRepo }) {
         {tab === 'local' ? (
           <WorkingDiffView repo={repo} />
         ) : (
-          <PrsView onCapturingChange={setCapturing} />
+          <PrsView repo={repo} onCapturingChange={setCapturing} />
         )}
       </Box>
     </Box>
