@@ -50,7 +50,21 @@ export async function diff(repoPath: string): Promise<DiffFile[]> {
       // Lê os bytes crus (sem encoding): o núcleo decide binário/texto pelo
       // conteúdo (presença de `\0`); decodificar p/ utf8 aqui sintetizaria
       // mojibake de um arquivo binário novo como adições. Issue #34.
-      const content = await fs.readFile(path.join(repoPath, entry.path));
+      let content: Buffer;
+      try {
+        content = await fs.readFile(path.join(repoPath, entry.path));
+      } catch (err) {
+        // A entrada não tem barra final (isDirEntry não pega) mas APONTA para um
+        // diretório: um symlink-para-diretório. O git não anexa barra a symlinks,
+        // só o fs revela — readFile segue o link até o dir e lança EISDIR. Trata
+        // igual ao dir colapsado (added sem corpo) em vez de propagar o erro, que
+        // derrubava o Working diff inteiro. Read-only preservado: o read falhou.
+        if ((err as NodeJS.ErrnoException).code === 'EISDIR') {
+          files.push(untrackedDirFile(entry.path));
+          continue;
+        }
+        throw err;
+      }
       files.push(untrackedDiffFile(entry.path, content));
       continue;
     }

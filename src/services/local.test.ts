@@ -88,6 +88,24 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
     expect(gitDiff).not.toHaveBeenCalled();
   });
 
+  it('symlink-para-diretório untracked (`?? link`, SEM barra): readFile dá EISDIR → added sem corpo, não derruba o diff', async () => {
+    // O git não anexa barra final a um symlink, então isDirEntry (que olha a barra)
+    // não o pega; mas o link resolve p/ um diretório e fs.readFile o segue e lança
+    // EISDIR. Antes, isso derrubava o Working diff inteiro; agora vira um DiffFile
+    // sem corpo, igual ao repo embarcado (só o fs revela que é diretório).
+    status.mockResolvedValue(statusResult([{ path: 'thelink', index: '?', working_dir: '?' }]));
+    readFile.mockRejectedValue(
+      Object.assign(new Error('EISDIR: illegal operation on a directory, read'), { code: 'EISDIR' }),
+    );
+
+    const files = await diff('/repo');
+
+    expect(files).toEqual<DiffFile[]>([
+      { path: 'thelink', status: { kind: 'added' }, body: { kind: 'none' }, url: null },
+    ]);
+    expect(gitDiff).not.toHaveBeenCalled();
+  });
+
   it('o index NÃO é tocado: nunca chama add/add -N (read-only, AC)', async () => {
     status.mockResolvedValue(
       statusResult([{ path: 'novo.ts', index: '?', working_dir: '?' }]),
