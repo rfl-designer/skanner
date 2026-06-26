@@ -40,6 +40,12 @@ export function watch(repoPath: string, onChange: () => void): () => void {
     if (!isIgnoredPath(path.relative(repoPath, changedPath))) fire();
   });
 
+  // chokidar emite 'error' de forma ASSÍNCRONA (ex.: ENOSPC no limite do inotify),
+  // fora do alcance do try/catch de quem chamou. Num EventEmitter, emitir 'error'
+  // sem listener lança e derruba o processo Ink. Engolimos: o auto-watch degrada,
+  // a TUI fica de pé (baseline "não crashar"); o [r] manual segue valendo.
+  watcher.on('error', () => {});
+
   return () => {
     if (timer) {
       clearTimeout(timer);

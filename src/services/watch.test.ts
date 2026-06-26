@@ -4,15 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // `vi.useFakeTimers` controla o debounce. Sem fs nem watcher real.
 const { watchMock, fakeWatcher } = vi.hoisted(() => {
   const handlers: Array<(event: string, path: string) => void> = [];
+  const errorHandlers: Array<(err: unknown) => void> = [];
   const fakeWatcher = {
-    on: vi.fn((event: string, cb: (event: string, path: string) => void) => {
-      if (event === 'all') handlers.push(cb);
+    on: vi.fn((event: string, cb: (...args: never[]) => void) => {
+      if (event === 'all') handlers.push(cb as (event: string, path: string) => void);
+      if (event === 'error') errorHandlers.push(cb as (err: unknown) => void);
       return fakeWatcher;
     }),
     close: vi.fn(() => Promise.resolve()),
     emit: (path: string) => handlers.forEach((h) => h('change', path)),
+    // Espelha o EventEmitter real: 'error' sem listener registrado lança (derruba o processo).
+    emitError: (err: unknown) => {
+      if (errorHandlers.length === 0) throw err;
+      errorHandlers.forEach((h) => h(err));
+    },
     reset: () => {
       handlers.length = 0;
+      errorHandlers.length = 0;
     },
   };
   const watchMock = vi.fn(() => fakeWatcher);
@@ -58,6 +66,17 @@ describe('watch — debounce + ignore (#15)', () => {
     fakeWatcher.emit(abs('vendor/autoload.php'));
     vi.advanceTimersByTime(400);
 
+    expect(onChange).not.toHaveBeenCalled();
+    unsub();
+  });
+
+  it("registra handler de 'error': erro async do chokidar não propaga (TUI não crasha)", () => {
+    const onChange = vi.fn();
+    const unsub = watch(REPO, onChange);
+
+    // Sem o listener de 'error', emitError lançaria — derrubando o processo Ink.
+    expect(() => fakeWatcher.emitError(new Error('ENOSPC'))).not.toThrow();
+    vi.advanceTimersByTime(400);
     expect(onChange).not.toHaveBeenCalled();
     unsub();
   });
