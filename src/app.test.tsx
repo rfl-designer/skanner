@@ -12,6 +12,7 @@ const repo: ResolvedRepo = {
   profile: 'flat',
   modularBaseDir: 'app/Contexts',
   source: { profile: 'auto' },
+  autoWatch: false,
 };
 
 const tick = async () => {

@@ -17,6 +17,8 @@ export interface RepoOverride {
   modularBaseDir?: string;
   owner?: string;
   name?: string;
+  /** Auto-watch do Working diff ligado por este repo (issue #15); ausente = desligado. */
+  autoWatch?: boolean;
 }
 
 /** Repo resolvido do cwd — o que `resolveFromCwd` entrega à UI. */
@@ -26,6 +28,8 @@ export interface ResolvedRepo {
   profile: Profile;
   modularBaseDir: string;
   source: { profile: 'auto' | 'override' };
+  /** Estado efetivo do auto-watch deste repo (issue #15); default desligado. */
+  autoWatch: boolean;
 }
 
 /** Diretório base modular default; a existência dele na raiz marca `modular`. */
@@ -116,5 +120,17 @@ export function mergeOverride(input: {
     profile: override.profile ?? auto,
     modularBaseDir: modularBaseDirFor(override),
     source: { profile: override.profile ? 'override' : 'auto' },
+    autoWatch: override.autoWatch ?? false,
   };
+}
+
+/**
+ * Alterna o **auto-watch** do repo (tecla `[w]`, issue #15): liga ↔ desliga.
+ * Updater PURO análogo ao `applyProfileEdit` — devolve o `override` a persistir
+ * por path (mapa `path → overrides`, ADR 0005) com o `autoWatch` invertido e o
+ * `repo` atualizado para a UI refletir o estado na hora. Pura/testável.
+ */
+export function toggleAutoWatch(repo: ResolvedRepo): { override: RepoOverride; repo: ResolvedRepo } {
+  const autoWatch = !repo.autoWatch;
+  return { override: { autoWatch }, repo: { ...repo, autoWatch } };
 }

@@ -5,6 +5,7 @@ import {
   mergeOverride,
   modularBaseDirFor,
   parseOriginUrl,
+  toggleAutoWatch,
   toggleProfile,
   type RepoIdentity,
   type ResolvedRepo,
@@ -85,6 +86,42 @@ describe('mergeOverride — AC 4 (auto) e AC 5 (override vence)', () => {
     const r = mergeOverride({ parsedIdentity: local, hasModularBaseDir: false, override: {} });
     expect(r.identity).toEqual(local);
   });
+
+  it('autoWatch default desligado; override liga (#15)', () => {
+    expect(mergeOverride({ parsedIdentity: local, hasModularBaseDir: false, override: {} }).autoWatch).toBe(false);
+    expect(
+      mergeOverride({ parsedIdentity: local, hasModularBaseDir: false, override: { autoWatch: true } }).autoWatch,
+    ).toBe(true);
+  });
+});
+
+describe('toggleAutoWatch — tecla [w] (#15)', () => {
+  const repo: ResolvedRepo = {
+    root: '/repo/a',
+    identity: github('rfl-designer', 'soloboard'),
+    profile: 'flat',
+    modularBaseDir: DEFAULT_MODULAR_BASE_DIR,
+    source: { profile: 'auto' },
+    autoWatch: false,
+  };
+
+  it('off → on → off, persistindo só o campo autoWatch', () => {
+    const on = toggleAutoWatch(repo);
+    expect(on.override).toEqual({ autoWatch: true });
+    expect(on.repo.autoWatch).toBe(true);
+
+    const off = toggleAutoWatch(on.repo);
+    expect(off.override).toEqual({ autoWatch: false });
+    expect(off.repo.autoWatch).toBe(false);
+  });
+
+  it('preserva perfil/dir/identidade — o [w] só mexe no autoWatch', () => {
+    const { repo: next } = toggleAutoWatch(repo);
+    expect(next.profile).toBe(repo.profile);
+    expect(next.modularBaseDir).toBe(repo.modularBaseDir);
+    expect(next.identity).toEqual(repo.identity);
+    expect(next.root).toBe(repo.root);
+  });
 });
 
 describe('toggleProfile — regra da tecla [m] (#11)', () => {
@@ -101,6 +138,7 @@ describe('applyProfileEdit — edição inline do [m] (AC 4 / #11)', () => {
     profile: 'flat',
     modularBaseDir: DEFAULT_MODULAR_BASE_DIR,
     source: { profile: 'auto' },
+    autoWatch: false,
   };
 
   it('aplica perfil + modularBaseDir e marca a fonte como override', () => {

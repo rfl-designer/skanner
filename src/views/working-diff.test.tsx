@@ -17,6 +17,7 @@ const modularRepo: ResolvedRepo = {
   profile: 'modular',
   modularBaseDir: 'app/Contexts',
   source: { profile: 'auto' },
+  autoWatch: false,
 };
 const flatRepo: ResolvedRepo = { ...modularRepo, profile: 'flat', identity: { kind: 'local-only' } };
 
