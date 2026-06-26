@@ -2,6 +2,13 @@
 
 Status: aceito · 2026-06-25
 
+> **Atualização — 2026-06-26 (issue #15):** o ponto "**Sem fs watcher**" (Decisão, §44–45) e a
+> alternativa "**Watch ao vivo do filesystem: descartado na v1**" (§75–76) foram **superados**.
+> O auto-watch do Working diff entrou como feature opcional, **desligada por padrão e ligável por
+> repo** (`[w]`), com debounce e ignore de diretórios de ruído — o refresh manual (`[r]`) continua
+> sendo o caminho base. O restante deste ADR (cwd-primeiro, sem registry, remoto lazy) segue
+> vigente. Ver issue #15 e `.scratch/local-pre-commit-review/PRD.md`.
+
 ## Contexto
 
 O PRD v1 (§6) desenha o Skanner como um **hub multi-repo**: ao abrir, o app mostra a tela
