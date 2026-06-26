@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { render } from 'ink';
 import { App } from './app.js';
 import { resolveFromCwd } from './services/repo.js';
