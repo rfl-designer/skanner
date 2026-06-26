@@ -7,7 +7,8 @@ import {
   setToken,
   type GitHubUser,
 } from '../services/auth.js';
-import { list, type PullRequest } from '../services/prs.js';
+import { readCache, revalidate, type PullRequest } from '../services/prs.js';
+import { freshness } from '../core/freshness.js';
 import type { ResolvedRepo } from '../core/repo.js';
 
 /**
@@ -119,14 +120,17 @@ export function PrsView({ repo, onCapturingChange }: PrsViewProps) {
 }
 
 /**
- * Lista de PRs abertas (issue #4). Máquina de estados própria sobre `prs.list`:
- * loading → (empty | ready | error). `[r]` refaz a busca. Montada só quando há
- * identidade GitHub — o repo local-only é barrado pela `PrsView`.
+ * Lista de PRs abertas com cache e frescor (issue #4 + #9). Máquina de estados
+ * sobre o cache do `conf` (`readCache`) + `revalidate` (stale-while-revalidate):
+ * `readCache` pinta a lista na hora; `revalidate` traz o fresco em segundo plano.
+ * `[r]` força a revalidação. Montada só com identidade GitHub — o repo local-only
+ * é barrado pela `PrsView`.
  */
 type ListState =
   | { status: 'loading' }
-  | { status: 'empty' }
-  | { status: 'ready'; prs: PullRequest[] }
+  | { status: 'revalidating'; prs: PullRequest[]; fetchedAt: string }
+  | { status: 'ready'; prs: PullRequest[]; fetchedAt: string }
+  | { status: 'empty'; fetchedAt: string | null }
   | { status: 'error'; error: string };
 
 function PrList({ repo }: { repo: ResolvedRepo }) {
@@ -135,11 +139,21 @@ function PrList({ repo }: { repo: ResolvedRepo }) {
 
   useEffect(() => {
     let cancelled = false;
-    setState({ status: 'loading' });
-    list(repo)
-      .then((prs) => {
+    // Abertura instantânea: pinta o cache (se houver) e revalida em 2º plano.
+    const cached = readCache(repo);
+    setState(
+      cached
+        ? { status: 'revalidating', prs: cached.prs, fetchedAt: cached.fetchedAt }
+        : { status: 'loading' },
+    );
+    revalidate(repo)
+      .then((fresh) => {
         if (cancelled) return;
-        setState(prs.length === 0 ? { status: 'empty' } : { status: 'ready', prs });
+        setState(
+          fresh.prs.length === 0
+            ? { status: 'empty', fetchedAt: fresh.fetchedAt }
+            : { status: 'ready', prs: fresh.prs, fetchedAt: fresh.fetchedAt },
+        );
       })
       .catch((err: unknown) => {
         if (!cancelled) setState({ status: 'error', error: message(err) });
@@ -149,7 +163,7 @@ function PrList({ repo }: { repo: ResolvedRepo }) {
     };
   }, [repo, nonce]);
 
-  // [r] recarrega a lista (refaz a busca), exceto enquanto já carrega.
+  // [r] força a revalidação, exceto enquanto a primeira carga ainda roda.
   useInput((input) => {
     if (input === 'r') setNonce((n) => n + 1);
   }, { isActive: state.status !== 'loading' });
@@ -171,7 +185,7 @@ function PrList({ repo }: { repo: ResolvedRepo }) {
     return (
       <Box flexDirection="column">
         <Text dimColor>nenhuma PR aberta.</Text>
-        <Text dimColor>[r] atualizar</Text>
+        <FreshnessLine fetchedAt={state.fetchedAt} revalidating={false} />
       </Box>
     );
   }
@@ -188,8 +202,36 @@ function PrList({ repo }: { repo: ResolvedRepo }) {
           <Text dimColor> · {pr.updatedAt.slice(0, 10)}</Text>
         </Text>
       ))}
-      <Text dimColor>[r] atualizar</Text>
+      <FreshnessLine
+        fetchedAt={state.fetchedAt}
+        revalidating={state.status === 'revalidating'}
+      />
     </Box>
+  );
+}
+
+/**
+ * Rodapé de frescor: rótulo "atualizado há X" (regra no coração `freshness`),
+ * marca de "revalidando…" enquanto o 2º plano roda, e a dica de refresh forçado.
+ */
+function FreshnessLine({
+  fetchedAt,
+  revalidating,
+}: {
+  fetchedAt: string | null;
+  revalidating: boolean;
+}) {
+  const fresh = fetchedAt ? freshness(fetchedAt, new Date()) : null;
+  return (
+    <Text dimColor>
+      {fresh ? (
+        <Text color={fresh.stale ? 'yellow' : undefined} dimColor={!fresh.stale}>
+          {fresh.label}
+        </Text>
+      ) : null}
+      {fresh ? ' · ' : ''}
+      {revalidating ? 'revalidando… · ' : ''}[r] atualizar
+    </Text>
   );
 }
 
