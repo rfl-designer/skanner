@@ -13,7 +13,7 @@ import {
   type LayerGroup,
 } from '../core/review.js';
 import { checkedRecord, checkedSet, prKey, progressOf } from '../core/checklist.js';
-import { badgesFor, defaultExpanded } from '../core/diff.js';
+import { badgesFor } from '../core/diff.js';
 import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
 import { FileDiff, basename } from './diff-render.js';
@@ -50,8 +50,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const [state, setState] = useState<ReviewState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
-  // [tab] dobra/desdobra o diff do arquivo atual; trocar de arquivo volta ao
-  // default (normal desdobrado, gigante dobrado — ver `defaultExpanded`).
+  // Arquivo entra colapsado; [tab] desdobra/dobra o diff do atual (reseta ao trocar).
   const [expanded, setExpanded] = useState(false);
   // [r] refaz a busca após erro recuperável (sem rede / falha genérica).
   const [nonce, setNonce] = useState(0);
@@ -80,7 +79,6 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
         }
         const grouped = groupReview(pr.files, repo.profile);
         const files = flatten(grouped);
-        setExpanded(defaultExpanded(files[0].body));
         setState({ status: 'ready', review: grouped, files });
       })
       .catch((err: unknown) => {
@@ -126,21 +124,17 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     if (input === ' ') {
       toggleReviewed();
     } else if (inputKey.downArrow || input === 'j' || input === 'n') {
-      const next = Math.min(cursor + 1, state.files.length - 1);
-      setCursor(next);
-      setExpanded(defaultExpanded(state.files[next].body));
+      setCursor((c) => Math.min(c + 1, state.files.length - 1));
+      setExpanded(false);
     } else if (inputKey.upArrow || input === 'k' || input === 'p') {
-      const next = Math.max(cursor - 1, 0);
-      setCursor(next);
-      setExpanded(defaultExpanded(state.files[next].body));
+      setCursor((c) => Math.max(c - 1, 0));
+      setExpanded(false);
     } else if (input === ']') {
-      const next = jumpGroup(starts, cursor, 'next');
-      setCursor(next);
-      setExpanded(defaultExpanded(state.files[next].body));
+      setCursor((c) => jumpGroup(starts, c, 'next'));
+      setExpanded(false);
     } else if (input === '[') {
-      const next = jumpGroup(starts, cursor, 'prev');
-      setCursor(next);
-      setExpanded(defaultExpanded(state.files[next].body));
+      setCursor((c) => jumpGroup(starts, c, 'prev'));
+      setExpanded(false);
     } else if (inputKey.tab) {
       setExpanded((e) => !e);
     }

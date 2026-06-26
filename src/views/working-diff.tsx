@@ -11,7 +11,6 @@ import {
   type LayerGroup,
 } from '../core/review.js';
 import { detectedLayers, preserveCursor } from '../core/local.js';
-import { defaultExpanded } from '../core/diff.js';
 import type { ResolvedRepo } from '../core/repo.js';
 import { FileDiff, basename } from './diff-render.js';
 
@@ -49,8 +48,7 @@ const NO_RELOAD: Reload = { nonce: 0, preserve: false };
 export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRepo; reload?: Reload }) {
   const [state, setState] = useState<LocalState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
-  // [tab] dobra/desdobra o diff do arquivo atual; trocar de arquivo volta ao
-  // default (normal desdobrado, gigante dobrado — ver `defaultExpanded`).
+  // Arquivo entra colapsado; [tab] desdobra/dobra o diff do atual (reseta ao trocar).
   const [expanded, setExpanded] = useState(false);
 
   // Seleção atual (caminho + índice + expandido) num ref, para o reload preservado
@@ -87,7 +85,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         // Mantém o expandido só se reaterrissou no MESMO arquivo; se caiu no vizinho, reseta.
         const samePath = keep !== null && flat[nextCursor]?.path === keep.path;
         setCursor(nextCursor);
-        setExpanded(samePath ? keep.expanded : defaultExpanded(flat[nextCursor].body));
+        setExpanded(samePath ? keep.expanded : false);
         setState({ status: 'ready', review, files: flat, layers: detectedLayers(files) });
       })
       .catch((err: unknown) => {
@@ -101,13 +99,11 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   useInput((input, key) => {
     if (state.status !== 'ready') return;
     if (key.downArrow || input === 'j') {
-      const next = Math.min(cursor + 1, state.files.length - 1);
-      setCursor(next);
-      setExpanded(defaultExpanded(state.files[next].body));
+      setCursor((c) => Math.min(c + 1, state.files.length - 1));
+      setExpanded(false);
     } else if (key.upArrow || input === 'k') {
-      const next = Math.max(cursor - 1, 0);
-      setCursor(next);
-      setExpanded(defaultExpanded(state.files[next].body));
+      setCursor((c) => Math.max(c - 1, 0));
+      setExpanded(false);
     } else if (key.tab) {
       setExpanded((e) => !e);
     }

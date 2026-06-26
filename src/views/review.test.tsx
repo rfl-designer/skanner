@@ -167,7 +167,9 @@ describe('ReviewView — agrupamento flat (perfil flat, #6)', () => {
 describe('ReviewView — diff e navegação (AC5)', () => {
   it('renderiza o diff unified do arquivo selecionado', async () => {
     diff.mockResolvedValue(modularDiff);
-    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={42} onBack={noop} />);
+    const { lastFrame, stdin, unmount } = render(<ReviewView repo={repo} number={42} onBack={noop} />);
+    await tick();
+    stdin.write('\t'); // arquivo entra colapsado; [tab] desdobra
     await tick();
     const frame = lastFrame() ?? '';
     // 1º arquivo na ordem da árvore = Crm/Models/Contact.php (contexto antes de "Sem contexto").

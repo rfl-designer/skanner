@@ -129,27 +129,29 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
 
   it('renderiza o diff unified do arquivo selecionado', async () => {
     diff.mockResolvedValue(multiLayer);
-    const { lastFrame, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    stdin.write('\t'); // arquivo entra colapsado; [tab] desdobra
     await tick();
     // 1º arquivo na ordem da árvore = Crm/.../migration (migration abre a fatia).
     expect(lastFrame()).toContain('+migration');
     unmount();
   });
 
-  it('[tab] dobra/desdobra o diff de um arquivo normal', async () => {
+  it('[tab] desdobra/dobra o diff do arquivo (entra colapsado)', async () => {
     diff.mockResolvedValue(multiLayer);
     const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
     await tick();
-    expect(lastFrame()).toContain('+migration'); // normal abre desdobrado
-
-    stdin.write('\t'); // dobra
-    await tick();
-    expect(lastFrame()).not.toContain('+migration');
+    expect(lastFrame()).not.toContain('+migration'); // entra colapsado
     expect(lastFrame()).toContain('diff dobrado');
 
     stdin.write('\t'); // desdobra
     await tick();
     expect(lastFrame()).toContain('+migration');
+
+    stdin.write('\t'); // dobra de novo
+    await tick();
+    expect(lastFrame()).not.toContain('+migration');
     unmount();
   });
 
