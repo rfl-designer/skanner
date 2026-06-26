@@ -3,6 +3,7 @@ import {
   bodyFromPatch,
   detectedLayers,
   isBinaryContent,
+  preserveCursor,
   synthesizeAddition,
   toLocalStatus,
   trackedDiffFile,
@@ -139,6 +140,31 @@ describe('trackedDiffFile — rastreado vira DiffFile (status + corpo)', () => {
     const file = trackedDiffFile({ path: 'new', index: 'R', workingDir: ' ', from: 'old' }, raw);
     expect(file.status).toEqual({ kind: 'renamed', from: 'old' });
     expect(file.body).toEqual({ kind: 'none' });
+  });
+});
+
+describe('preserveCursor — reselecionar por caminho após reload preservado (#37)', () => {
+  const files = (...paths: string[]) => paths.map((path) => ({ path }));
+
+  it('caminho ainda presente: índice dele, mesmo que tenha mudado de posição', () => {
+    expect(preserveCursor('b.ts', 1, files('b.ts', 'a.ts', 'c.ts'))).toBe(0);
+  });
+
+  it('caminho ainda no mesmo lugar: mesmo índice', () => {
+    expect(preserveCursor('a.ts', 0, files('a.ts', 'b.ts'))).toBe(0);
+  });
+
+  it('caminho sumiu: cai no vizinho (prevIndex clampado, o que escorregou pra cá)', () => {
+    // selecionado 'b.ts' (índice 1) foi removido → índice 1 agora é 'c.ts'.
+    expect(preserveCursor('b.ts', 1, files('a.ts', 'c.ts', 'd.ts'))).toBe(1);
+  });
+
+  it('caminho sumiu e era o último: clampa ao novo último', () => {
+    expect(preserveCursor('d.ts', 3, files('a.ts', 'b.ts'))).toBe(1);
+  });
+
+  it('sem seleção anterior (prevPath null): clampa o índice', () => {
+    expect(preserveCursor(null, 0, files('a.ts'))).toBe(0);
   });
 });
 

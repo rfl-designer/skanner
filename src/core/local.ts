@@ -111,6 +111,24 @@ export function trackedDiffFile(code: GitFileCode, raw: string): DiffFile {
 }
 
 /**
+ * Onde o cursor pousa após um **reload que preserva a seleção** (auto-watch,
+ * issue #37): se o arquivo antes selecionado (`prevPath`) ainda está no novo
+ * change-set, o índice dele ali (mesmo que tenha mudado de posição); se sumiu,
+ * o **vizinho** — `prevIndex` clampado ao novo tamanho (o arquivo que escorregou
+ * para aquela posição). O `[r]` manual NÃO chama isto: lá o reset ao topo é
+ * desejado. Lista vazia nunca chega aqui (vira o estado `empty`).
+ */
+export function preserveCursor(
+  prevPath: string | null,
+  prevIndex: number,
+  files: readonly { path: string }[],
+): number {
+  const at = files.findIndex((file) => file.path === prevPath);
+  if (at !== -1) return at;
+  return Math.min(Math.max(prevIndex, 0), files.length - 1);
+}
+
+/**
  * Camada(s) presentes no change-set, na ordem canônica de exibição
  * ([LAYER_ORDER](review.ts)), reusando `categorize`. É o rótulo do topo do
  * Working diff: uma só camada no caso comum (gate por camada), todas quando o
