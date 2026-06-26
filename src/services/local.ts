@@ -43,7 +43,11 @@ export async function diff(repoPath: string): Promise<DiffFile[]> {
       workingDir: entry.working_dir,
       from: status.renamed.find((r) => r.to === entry.path)?.from,
     };
-    const raw = await git.diff(['HEAD', '--', entry.path]);
+    // Renomeado precisa dos DOIS caminhos no pathspec — só com o novo, o git não
+    // pareia a remoção do antigo e devolve o arquivo inteiro como adições (sem o
+    // delta nem a detecção de rename). Com ambos, sai `rename from/to` + o hunk real.
+    const paths = code.from ? [code.from, entry.path] : [entry.path];
+    const raw = await git.diff(['HEAD', '--', ...paths]);
     files.push(trackedDiffFile(code, raw));
   }
   return files;

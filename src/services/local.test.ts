@@ -77,19 +77,44 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
     });
   });
 
-  it('renomeado vira DiffFile renamed com o nome antigo (do status.renamed)', async () => {
+  it('renomeado puro: passa AMBOS os caminhos ao git diff, vira renamed + body none', async () => {
     status.mockResolvedValue(
       statusResult(
         [{ path: 'app/Services/New.php', index: 'R', working_dir: ' ' }],
         [{ from: 'app/Services/Old.php', to: 'app/Services/New.php' }],
       ),
     );
+    // Saída REAL de `git diff HEAD -- <antigo> <novo>` para rename puro (100%).
     gitDiff.mockResolvedValue('diff --git a/app/Services/Old.php b/app/Services/New.php\nsimilarity index 100%\nrename from app/Services/Old.php\nrename to app/Services/New.php\n');
 
     const files = await diff('/repo');
 
+    // Sem ambos os caminhos, o git daria "new file" com o arquivo todo em verde.
+    expect(gitDiff).toHaveBeenCalledWith(['HEAD', '--', 'app/Services/Old.php', 'app/Services/New.php']);
     expect(files[0].status).toEqual({ kind: 'renamed', from: 'app/Services/Old.php' });
     expect(files[0].body).toEqual({ kind: 'none' });
+  });
+
+  it('renomeado COM edição: corpo é o delta do hunk, não o arquivo inteiro como adições', async () => {
+    status.mockResolvedValue(
+      statusResult(
+        [{ path: 'new.txt', index: 'R', working_dir: 'M' }],
+        [{ from: 'old.txt', to: 'new.txt' }],
+      ),
+    );
+    // Saída REAL de `git diff HEAD -- old.txt new.txt` para rename+edição (60%).
+    gitDiff.mockResolvedValue(
+      'diff --git a/old.txt b/new.txt\nsimilarity index 60%\nrename from old.txt\nrename to new.txt\nindex f9d9a01..617a11f 100644\n--- a/old.txt\n+++ b/new.txt\n@@ -1,7 +1,7 @@\n a\n b\n c\n-d\n+CHANGED\n e\n f\n g\n',
+    );
+
+    const files = await diff('/repo');
+
+    expect(gitDiff).toHaveBeenCalledWith(['HEAD', '--', 'old.txt', 'new.txt']);
+    expect(files[0].status).toEqual({ kind: 'renamed', from: 'old.txt' });
+    expect(files[0].body).toEqual({
+      kind: 'patch',
+      patch: '@@ -1,7 +1,7 @@\n a\n b\n c\n-d\n+CHANGED\n e\n f\n g',
+    });
   });
 
   it('deletado vira DiffFile removed com o patch só de remoções', async () => {
