@@ -263,6 +263,7 @@ function Shortcut({ keys, desc }: { keys: string; desc: string }) {
       {desc}
     </Text>
   );
+}
 
 /**
  * Árvore de navegação com o cursor marcado, o ✓ no arquivo revisado e o agregado
