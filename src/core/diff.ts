@@ -194,3 +194,73 @@ export function prevHunkStart(starts: number[], scrollTop: number): number {
   }
   return prev;
 }
+
+/**
+ * Faixa `[start, end)` em coordenadas de **conteúdo** (após o marcador +/−) da
+ * sub-região que de fato mudou numa linha — o realce intra-linha do diff (estilo
+ * `*_rich` do GitButler). `end` é exclusivo.
+ */
+export interface IntralineRange {
+  start: number;
+  end: number;
+}
+
+function isDelLine(line: string): boolean {
+  return line.startsWith('-') && !line.startsWith('---');
+}
+
+function isAddLine(line: string): boolean {
+  return line.startsWith('+') && !line.startsWith('+++');
+}
+
+/**
+ * Trecho central que difere entre o conteúdo removido `a` e o adicionado `b`,
+ * por prefixo/sufixo comum (refino char-a-char, barato e robusto — o mesmo
+ * princípio do diff intra-linha de `delta`/`git`). Retorna a faixa em cada lado
+ * só quando há um meio não-vazio ali; prefixo/sufixo idênticos ficam de fora.
+ */
+function changedMiddle(a: string, b: string): { del?: IntralineRange; add?: IntralineRange } {
+  if (a === b) return {};
+  const min = Math.min(a.length, b.length);
+  let p = 0;
+  while (p < min && a[p] === b[p]) p++;
+  let s = 0;
+  while (s < min - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  const del = p < a.length - s ? { start: p, end: a.length - s } : undefined;
+  const add = p < b.length - s ? { start: p, end: b.length - s } : undefined;
+  return { del, add };
+}
+
+/**
+ * Refino **intra-linha** de um patch unified: para cada índice de linha que tem
+ * uma sub-região alterada, a faixa `[start, end)` (em coords de conteúdo) a
+ * realçar. Aplica-se só ao caso limpo e inequívoco — um bloco de `N` linhas
+ * removidas seguido imediatamente por `N` adicionadas, pareadas por posição —,
+ * onde o "uma linha virou outra" é nítido; blocos de tamanhos diferentes (inserção/
+ * remoção pura, edição multi-linha desalinhada) não são refinados. Puro.
+ */
+export function refineIntraline(lines: string[]): Map<number, IntralineRange> {
+  const out = new Map<number, IntralineRange>();
+  let i = 0;
+  while (i < lines.length) {
+    if (!isDelLine(lines[i])) {
+      i++;
+      continue;
+    }
+    let delEnd = i;
+    while (delEnd < lines.length && isDelLine(lines[delEnd])) delEnd++;
+    let addEnd = delEnd;
+    while (addEnd < lines.length && isAddLine(lines[addEnd])) addEnd++;
+    const dels = delEnd - i;
+    const adds = addEnd - delEnd;
+    if (dels > 0 && dels === adds) {
+      for (let k = 0; k < dels; k++) {
+        const seg = changedMiddle(lines[i + k].slice(1), lines[delEnd + k].slice(1));
+        if (seg.del) out.set(i + k, seg.del);
+        if (seg.add) out.set(delEnd + k, seg.add);
+      }
+    }
+    i = addEnd > i ? addEnd : i + 1;
+  }
+  return out;
+}

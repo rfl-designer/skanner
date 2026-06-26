@@ -9,6 +9,7 @@ import {
   maxScrollTop,
   nextHunkStart,
   prevHunkStart,
+  refineIntraline,
   toDiffFile,
   type DiffFile,
 } from './diff.js';
@@ -173,5 +174,37 @@ describe('scroll por linha do diff (#scroll: hunk maior que a tela)', () => {
     const starts = [0, 21];
     expect(prevHunkStart(starts, 21)).toBe(0);
     expect(prevHunkStart(starts, 0)).toBe(0); // já no primeiro
+  });
+});
+
+describe('refineIntraline — realce da sub-região que mudou', () => {
+  it('par −/+ alinhado: realça só o meio que diferiu (prefixo/sufixo comuns ficam de fora)', () => {
+    // conteúdo: "const x = 1;" → "const x = 2;" — só o "1"/"2" mudou (índice 10).
+    const lines = ['@@ -1 +1 @@', '-const x = 1;', '+const x = 2;'];
+    const ranges = refineIntraline(lines);
+    expect(ranges.get(1)).toEqual({ start: 10, end: 11 }); // linha removida
+    expect(ranges.get(2)).toEqual({ start: 10, end: 11 }); // linha adicionada
+  });
+
+  it('inserção pura (sufixo acrescentado): só o lado adicionado ganha faixa', () => {
+    const lines = ['-foo', '+foobar'];
+    const ranges = refineIntraline(lines);
+    expect(ranges.has(0)).toBe(false); // nada removido do "foo"
+    expect(ranges.get(1)).toEqual({ start: 3, end: 6 }); // "bar"
+  });
+
+  it('bloco de tamanhos diferentes não é refinado (pareamento ambíguo)', () => {
+    const lines = ['-a', '-b', '+c']; // 2 removidas, 1 adicionada
+    expect(refineIntraline(lines).size).toBe(0);
+  });
+
+  it('linha de contexto e cabeçalho de hunk são ignorados', () => {
+    const lines = [' contexto', '@@ -1 +1 @@', '+nova'];
+    expect(refineIntraline(lines).size).toBe(0); // sem par −/+
+  });
+
+  it('não confunde os marcadores de cabeçalho de arquivo (---/+++) com linhas de diff', () => {
+    const lines = ['--- a/x', '+++ b/x'];
+    expect(refineIntraline(lines).size).toBe(0);
   });
 });

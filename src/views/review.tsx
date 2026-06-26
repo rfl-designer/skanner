@@ -16,7 +16,8 @@ import { checkedRecord, checkedSet, prKey, progressOf } from '../core/checklist.
 import { badgesFor, hunkStarts, hunkAt, maxScrollTop, nextHunkStart, prevHunkStart } from '../core/diff.js';
 import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
-import { FileDiff, useDiffViewport, basename } from './diff-render.js';
+import { FileDiff, Pane, useDiffViewport, basename } from './diff-render.js';
+import { theme, CURSOR, NO_CURSOR, CHECK, NO_CHECK } from '../theme.js';
 
 /**
  * Tela **Review da PR** (modo remoto, PRD §6.3). Abre uma PR como fatia vertical:
@@ -204,27 +205,31 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   return (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
-        <Text color="yellow" bold>
+        <Text color={theme.key} bold>
           PR #{number}
         </Text>
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
         <Text dimColor> · revisados {overall.reviewed}/{overall.total}</Text>
       </Text>
-      <Box marginTop={1} flexDirection="row" gap={2}>
-        {!expanded && <Tree review={state.review} checked={checked} selectedPath={selected.path} />}
-        <Box flexDirection="column" flexShrink={1}>
+      <Box marginTop={1} flexDirection="row" gap={1}>
+        {!expanded && (
+          <Pane focused={!onDiff}>
+            <Tree review={state.review} checked={checked} selectedPath={selected.path} />
+          </Pane>
+        )}
+        <Pane focused={onDiff} grow>
           <Text wrap="truncate-start">
             {selected.status.kind === 'renamed' ? (
-              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
+              <Text color={onDiff ? theme.accent : undefined} dimColor={!onDiff}>
                 {selected.status.from} → {selected.path}
               </Text>
             ) : (
-              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
+              <Text color={onDiff ? theme.accent : undefined} dimColor={!onDiff}>
                 {selected.path}
               </Text>
             )}
             {badges.map((b) => (
-              <Text key={b} color="magenta">
+              <Text key={b} color={theme.badge}>
                 {' '}
                 [{b}]
               </Text>
@@ -232,7 +237,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
             {onDiff && hunks.length > 1 ? <Text dimColor> · bloco {safeHunk + 1}/{hunks.length}</Text> : null}
           </Text>
           <FileDiff file={selected} expanded={expanded} scrollTop={safeScroll} maxRows={maxRows} />
-        </Box>
+        </Pane>
       </Box>
       <Text dimColor wrap="truncate-end">
         {onDiff
@@ -249,7 +254,7 @@ function ErrorState({ error }: { error: GitHubError }) {
     case 'invalid-pat':
       return (
         <Box flexDirection="column">
-          <Text color="red">PAT inválido ou expirado.</Text>
+          <Text color={theme.error}>PAT inválido ou expirado.</Text>
           <Text dimColor>volte à aba PRs ([esc]) para recolar o token (Settings).</Text>
           <Text dimColor>[esc] voltar</Text>
         </Box>
@@ -257,21 +262,21 @@ function ErrorState({ error }: { error: GitHubError }) {
     case 'network':
       return (
         <Box flexDirection="column">
-          <Text color="red">sem rede — não deu para buscar o diff.</Text>
+          <Text color={theme.error}>sem rede — não deu para buscar o diff.</Text>
           <Text dimColor>[r] tentar de novo · [esc] voltar</Text>
         </Box>
       );
     case 'rate-limit':
       return (
         <Box flexDirection="column">
-          <Text color="red">rate limit do GitHub — reseta às {resetLabel(error.resetAt)}.</Text>
+          <Text color={theme.error}>rate limit do GitHub — reseta às {resetLabel(error.resetAt)}.</Text>
           <Text dimColor>[esc] voltar</Text>
         </Box>
       );
     case 'unknown':
       return (
         <Box flexDirection="column">
-          <Text color="red">erro: {error.message}</Text>
+          <Text color={theme.error}>erro: {error.message}</Text>
           <Text dimColor>[r] tentar de novo · [esc] voltar</Text>
         </Box>
       );
@@ -287,9 +292,7 @@ function canRetry(error: GitHubError): boolean {
 function HelpSheet() {
   return (
     <Box flexDirection="column">
-      <Text bold color="cyan">
-        Atalhos — Review
-      </Text>
+      <Text {...theme.brand}>Atalhos — Review</Text>
       <Shortcut keys="↑/↓ j/k" desc="arquivo anterior/próximo (sidebar) · rolar linha (diff)" />
       <Shortcut keys="J/K" desc="bloco anterior/próximo (diff)" />
       <Shortcut keys="l / h" desc="entra no diff (desdobra) / volta à sidebar" />
@@ -306,7 +309,7 @@ function HelpSheet() {
 function Shortcut({ keys, desc }: { keys: string; desc: string }) {
   return (
     <Text>
-      <Text color="yellow">{keys.padEnd(10)}</Text>
+      <Text color={theme.key}>{keys.padEnd(10)}</Text>
       {desc}
     </Text>
   );
@@ -340,7 +343,7 @@ function Tree({
         const ctx = progressOf(group.layers, checked);
         return (
           <Box key={group.context ?? NO_CONTEXT_LABEL} flexDirection="column">
-            <Text bold color="cyan">
+            <Text {...theme.context}>
               {group.context ?? NO_CONTEXT_LABEL} ({ctx.reviewed}/{ctx.total})
             </Text>
             <LayerList layers={group.layers} checked={checked} selectedPath={selectedPath} />
@@ -370,7 +373,7 @@ function LayerList({
         const lp = progressOf([layer], checked);
         return (
           <Box key={layer.layer} flexDirection="column">
-            <Text dimColor>
+            <Text {...theme.layer}>
               {' '}
               {LAYER_LABEL[layer.layer]} ({lp.reviewed}/{lp.total})
             </Text>
@@ -378,9 +381,9 @@ function LayerList({
               const here = file.path === selectedPath;
               const done = checked.has(file.path);
               return (
-                <Text key={file.path} color={here ? 'green' : undefined} bold={here} wrap="truncate-end">
-                  {here ? ' › ' : '   '}
-                  {done ? '✓ ' : '  '}
+                <Text key={file.path} {...(here ? theme.selected : {})} wrap="truncate-end">
+                  {here ? CURSOR : NO_CURSOR}
+                  {done ? CHECK : NO_CHECK}
                   {basename(file.path)}
                 </Text>
               );

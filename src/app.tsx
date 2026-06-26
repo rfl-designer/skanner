@@ -13,6 +13,7 @@ import { watch } from './services/watch.js';
 import { WorkingDiffView, type Reload } from './views/working-diff.js';
 import { PrsView } from './views/prs.js';
 import { ReviewView } from './views/review.js';
+import { theme } from './theme.js';
 
 type Tab = 'local' | 'prs';
 
@@ -125,17 +126,13 @@ export function App({ repo: initialRepo }: { repo: ResolvedRepo }) {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box>
-        <Text color="cyan" bold>
-          Skanner
-        </Text>
+        <Text {...theme.brand}>Skanner</Text>
         <Text dimColor>{'  ·  '}</Text>
         {openPr === null ? (
           <Tabs active={tab} />
         ) : (
           <Text>
-            <Text color="green" bold>
-              ● Review
-            </Text>
+            <Text {...theme.selected}>● Review</Text>
             <Text dimColor> #{openPr}</Text>
           </Text>
         )}
@@ -184,7 +181,7 @@ function ProfileLine({
   return (
     <Box>
       <Text dimColor>perfil </Text>
-      <Text color="yellow">{editing.profile}</Text>
+      <Text color={theme.key}>{editing.profile}</Text>
       <Text dimColor> · modularBaseDir: </Text>
       <TextInput value={editing.dir} onChange={(dir) => onChange({ ...editing, dir })} onSubmit={onCommit} />
     </Box>
@@ -202,9 +199,7 @@ function footer({ capturing, editing, tab, autoWatch }: { capturing: boolean; ed
 function AppHelp({ autoWatch }: { autoWatch: boolean }) {
   return (
     <Box flexDirection="column">
-      <Text bold color="cyan">
-        Atalhos — Skanner
-      </Text>
+      <Text {...theme.brand}>Atalhos — Skanner</Text>
       <Shortcut keys="←/→" desc="alterna Working diff ⇄ PRs" />
       <Shortcut keys="r" desc="recarrega o Working diff" />
       <Shortcut keys="m" desc="alterna perfil e edita o modularBaseDir" />
@@ -219,7 +214,7 @@ function AppHelp({ autoWatch }: { autoWatch: boolean }) {
 function Shortcut({ keys, desc }: { keys: string; desc: string }) {
   return (
     <Text>
-      <Text color="yellow">{keys.padEnd(6)}</Text>
+      <Text color={theme.key}>{keys.padEnd(6)}</Text>
       {desc}
     </Text>
   );
@@ -238,9 +233,7 @@ function Tabs({ active }: { active: Tab }) {
 /** Uma aba: ativa ganha marcador cheio + verde/bold; inativa fica esmaecida. */
 function Tab({ label, active }: { label: string; active: boolean }) {
   return active ? (
-    <Text color="green" bold>
-      ● {label}
-    </Text>
+    <Text {...theme.selected}>● {label}</Text>
   ) : (
     <Text dimColor>○ {label}</Text>
   );

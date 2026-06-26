@@ -25,7 +25,8 @@ import {
 import { detectedLayers, preserveCursor } from '../core/local.js';
 import { hunkStarts, hunkAt, isViewable, maxScrollTop, nextHunkStart, prevHunkStart } from '../core/diff.js';
 import type { ResolvedRepo } from '../core/repo.js';
-import { FileDiff, FileViewer, useDiffViewport, basename } from './diff-render.js';
+import { FileDiff, FileViewer, Pane, useDiffViewport, basename } from './diff-render.js';
+import { theme, CURSOR, NO_CURSOR, CHECK, NO_CHECK } from '../theme.js';
 
 /**
  * Aba **Working diff** (modo local, CONTEXT.md §Modo local) — a tela inicial e o
@@ -380,7 +381,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   if (state.status === 'error') {
     return (
       <Box flexDirection="column">
-        <Text color="red">não deu para ler o diff local: {state.message}</Text>
+        <Text color={theme.error}>não deu para ler o diff local: {state.message}</Text>
         <Text dimColor>[r] tentar de novo</Text>
       </Box>
     );
@@ -406,7 +407,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   if (gate.phase !== 'idle') {
     return (
       <Box flexDirection="column">
-        <Text bold color="cyan">
+        <Text color={theme.success} bold>
           Commit — {marked.size} arquivo(s) marcado(s)
         </Text>
         {gate.phase === 'type' && (
@@ -414,7 +415,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
             <Text>Tipo do commit:</Text>
             {COMMIT_TYPES.map((t, i) => (
               <Text key={t}>
-                <Text color="yellow">{`  ${i + 1}`}</Text> {t}
+                <Text color={theme.key}>{`  ${i + 1}`}</Text> {t}
               </Text>
             ))}
             <Text dimColor>[1-{COMMIT_TYPES.length}] escolher · [esc] cancelar</Text>
@@ -423,7 +424,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         {gate.phase === 'issue' && (
           <Box marginTop={1} flexDirection="column">
             <Text>
-              <Text color="green">{gate.type}</Text> · issue ou intenção:
+              <Text color={theme.success}>{gate.type}</Text> · issue ou intenção:
             </Text>
             <Box>
               <Text>{'  › '}</Text>
@@ -471,7 +472,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
           <Box marginTop={1} flexDirection="column">
             <Text dimColor>mensagem:</Text>
             {gate.body.trim().length > 0 ? (
-              <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+              <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexDirection="column">
                 {assembleMessage({ type: gate.type, issue: gate.issue, body: gate.body, aiAssisted: gate.aiAssisted })
                   .split('\n')
                   .map((line, i) => (
@@ -479,11 +480,11 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
                   ))}
               </Box>
             ) : (
-              <Text color="yellow">
+              <Text color={theme.warn}>
                 IA indisponível — o prefixo é {assembleMessage({ type: gate.type, issue: gate.issue, body: '', aiAssisted: false })}; [e] para escrever à mão.
               </Text>
             )}
-            {gate.error ? <Text color="red">commit falhou: {gate.error}</Text> : null}
+            {gate.error ? <Text color={theme.error}>commit falhou: {gate.error}</Text> : null}
             <Text dimColor>
               {gate.body.trim().length > 0 ? '[enter] commitar · ' : ''}[e] editar · [esc] cancelar (desfaz o staging)
             </Text>
@@ -502,28 +503,32 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   return (
     <Box flexDirection="column">
       <Text wrap="truncate-end">
-        <Text color="yellow" bold>
+        <Text color={theme.key} bold>
           {layerHeader(state.layers)}
         </Text>
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
       </Text>
-      <Box marginTop={1} flexDirection="row" gap={2}>
-        {!expanded && <LocalTree review={state.review} selectedPath={selected.path} marked={marked} />}
-        <Box flexDirection="column" flexShrink={1}>
+      <Box marginTop={1} flexDirection="row" gap={1}>
+        {!expanded && (
+          <Pane focused={!onDiff}>
+            <LocalTree review={state.review} selectedPath={selected.path} marked={marked} />
+          </Pane>
+        )}
+        <Pane focused={onDiff} grow>
           <Text wrap="truncate-start">
             {selected.status.kind === 'renamed' ? (
-              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
+              <Text color={onDiff ? theme.accent : undefined} dimColor={!onDiff}>
                 {selected.status.from} → {selected.path}
               </Text>
             ) : (
-              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
+              <Text color={onDiff ? theme.accent : undefined} dimColor={!onDiff}>
                 {selected.path}
               </Text>
             )}
             {onDiff && hunks.length > 1 ? <Text dimColor> · bloco {safeHunk + 1}/{hunks.length}</Text> : null}
           </Text>
           <FileDiff file={selected} expanded={expanded} scrollTop={safeScroll} maxRows={maxRows} />
-        </Box>
+        </Pane>
       </Box>
       <Text dimColor wrap="truncate-end">
         {onDiff
@@ -566,9 +571,7 @@ function LocalTree({
     <Box flexDirection="column">
       {review.groups.map((group) => (
         <Box key={group.context ?? NO_CONTEXT_LABEL} flexDirection="column">
-          <Text bold color="cyan">
-            {group.context ?? NO_CONTEXT_LABEL}
-          </Text>
+          <Text {...theme.context}>{group.context ?? NO_CONTEXT_LABEL}</Text>
           <LayerList layers={group.layers} selectedPath={selectedPath} marked={marked} />
         </Box>
       ))}
@@ -590,14 +593,14 @@ function LayerList({
     <>
       {layers.map((layer) => (
         <Box key={layer.layer} flexDirection="column">
-          <Text dimColor> {LAYER_LABEL[layer.layer]}</Text>
+          <Text {...theme.layer}> {LAYER_LABEL[layer.layer]}</Text>
           {layer.files.map((file) => {
             const here = file.path === selectedPath;
             const isMarked = marked.has(file.path);
             return (
-              <Text key={file.path} color={here ? 'green' : undefined} bold={here} wrap="truncate-end">
-                {here ? ' › ' : '   '}
-                {isMarked ? '✓ ' : '  '}
+              <Text key={file.path} {...(here ? theme.selected : {})} wrap="truncate-end">
+                {here ? CURSOR : NO_CURSOR}
+                {isMarked ? CHECK : NO_CHECK}
                 {basename(file.path)}
               </Text>
             );

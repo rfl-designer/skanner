@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import { highlight } from 'cli-highlight';
-import { isOversized } from '../core/diff.js';
+import { isOversized, refineIntraline, type IntralineRange } from '../core/diff.js';
 import type { ChangedFile } from '../core/review.js';
+import { theme } from '../theme.js';
 
 /**
  * Altura do viewport do diff em linhas, derivada das `rows` do terminal com folga
@@ -26,6 +28,35 @@ export function useDiffViewport(): number {
  * resolvido pelo núcleo e desenham hunks unified em Ink + highlight via
  * `cli-highlight`. O colapso por teto de linhas é decisão do núcleo (`isOversized`).
  */
+
+/**
+ * Painel emoldurado com **sinalização de foco** (estilo `but tui` do GitButler): o
+ * painel em foco ganha borda espessa e acentuada; o inativo, borda fina e apagada.
+ * `grow` faz o painel ocupar o espaço restante da linha (a coluna do diff). Puro.
+ */
+export function Pane({
+  focused,
+  grow,
+  children,
+}: {
+  focused: boolean;
+  grow?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Box
+      flexDirection="column"
+      flexShrink={1}
+      flexGrow={grow ? 1 : 0}
+      paddingX={1}
+      borderStyle={focused ? 'bold' : 'round'}
+      borderColor={focused ? theme.borderFocus : theme.border}
+      borderDimColor={!focused}
+    >
+      {children}
+    </Box>
+  );
+}
 
 /**
  * Corpo do arquivo como máquina sobre o `body` (PRD §6.5): binário e
@@ -69,20 +100,23 @@ export function FileDiff({
       }
       const lang = languageOf(file.path);
       const lines = body.patch.split('\n');
+      // Refino intra-linha computado sobre o patch INTEIRO (pareamento −/+ não pode
+      // depender da fatia visível); o viewport só seleciona quais índices desenhar.
+      const ranges = refineIntraline(lines);
       const top = Math.min(Math.max(0, scrollTop), Math.max(0, lines.length - 1));
       const end = maxRows === undefined ? lines.length : Math.min(lines.length, top + maxRows);
       return (
         <Box flexDirection="column">
           {top > 0 ? (
-            <Text color="cyan" dimColor>
+            <Text color={theme.hunk} dimColor>
               ▲ {top} linha{top > 1 ? 's' : ''} acima
             </Text>
           ) : null}
           {lines.slice(top, end).map((line, i) => (
-            <DiffLine key={top + i} line={line} lang={lang} />
+            <DiffLine key={top + i} line={line} lang={lang} range={ranges.get(top + i)} />
           ))}
           {end < lines.length ? (
-            <Text color="cyan" dimColor>
+            <Text color={theme.hunk} dimColor>
               ▼ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo
             </Text>
           ) : null}
@@ -115,11 +149,9 @@ export function FileViewer({
   if (content === null) {
     return (
       <Box flexDirection="column">
-        <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+        <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexDirection="column">
           <Text wrap="truncate-start">
-            <Text bold color="cyan">
-              {path}
-            </Text>
+            <Text {...theme.brand}>{path}</Text>
           </Text>
           <Text dimColor>carregando…</Text>
         </Box>
@@ -135,18 +167,16 @@ export function FileViewer({
   const gutter = String(lines.length).length;
   return (
     <Box flexDirection="column">
-      <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+      <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexDirection="column">
         <Text wrap="truncate-start">
-          <Text bold color="cyan">
-            {path}
-          </Text>
+          <Text {...theme.brand}>{path}</Text>
           <Text dimColor>
             {' '}
             · linha {top + 1}/{lines.length}
           </Text>
         </Text>
         {top > 0 ? (
-          <Text color="cyan" dimColor>
+          <Text color={theme.hunk} dimColor>
             ▲ {top} linha{top > 1 ? 's' : ''} acima
           </Text>
         ) : null}
@@ -157,7 +187,7 @@ export function FileViewer({
           </Text>
         ))}
         {end < lines.length ? (
-          <Text color="cyan" dimColor>
+          <Text color={theme.hunk} dimColor>
             ▼ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo
           </Text>
         ) : null}
@@ -176,34 +206,52 @@ function ViewerFooter() {
   );
 }
 
-function DiffLine({ line, lang }: { line: string; lang: string | undefined }) {
+function DiffLine({ line, lang, range }: { line: string; lang: string | undefined; range?: IntralineRange }) {
   // `truncate-end`: cada linha ocupa UMA linha de tela mesmo em painel estreito
   // (tmux) — sem quebra que estoure o viewport. Marcador +/− em bold p/ contraste.
   if (line.startsWith('@@'))
     return (
-      <Text color="cyan" bold wrap="truncate-end">
+      <Text color={theme.hunk} bold wrap="truncate-end">
         {line}
       </Text>
     );
   if (line.startsWith('+')) {
     return (
-      <Text color="green" wrap="truncate-end">
+      <Text color={theme.add} wrap="truncate-end">
         <Text bold>+</Text>
-        {paint(line.slice(1), lang)}
+        {body(line.slice(1), lang, range, theme.addEmph)}
       </Text>
     );
   }
   if (line.startsWith('-')) {
     return (
-      <Text color="red" wrap="truncate-end">
+      <Text color={theme.del} wrap="truncate-end">
         <Text bold>-</Text>
-        {paint(line.slice(1), lang)}
+        {body(line.slice(1), lang, range, theme.delEmph)}
       </Text>
     );
   }
   return (
     <Text dimColor wrap="truncate-end">
       {paint(line, lang)}
+    </Text>
+  );
+}
+
+/**
+ * Conteúdo de uma linha +/− do diff. Sem refino (`range` ausente), mantém o
+ * highlight de sintaxe. Com refino, parte em prefixo · meio · sufixo e realça só o
+ * **meio** que mudou (fundo da cor do lado, estilo `*_rich` do GitButler) — o
+ * prefixo/sufixo herdam a cor +/− do pai. O highlight de sintaxe é trocado pela
+ * ênfase nessas linhas: na sub-região alterada, o destaque importa mais que a cor da sintaxe.
+ */
+function body(content: string, lang: string | undefined, range: IntralineRange | undefined, emph: { color: string; backgroundColor: string; bold: boolean }) {
+  if (!range) return paint(content, lang);
+  return (
+    <Text>
+      {content.slice(0, range.start)}
+      <Text {...emph}>{content.slice(range.start, range.end)}</Text>
+      {content.slice(range.end)}
     </Text>
   );
 }
