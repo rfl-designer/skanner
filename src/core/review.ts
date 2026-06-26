@@ -7,6 +7,9 @@
  */
 
 import type { Profile } from './repo.js';
+import type { DiffFile } from './diff.js';
+
+export type { DiffFile, DiffBody, FileStatus } from './diff.js';
 
 /**
  * Camada (Layer) — papel arquitetural de um arquivo no fluxo da feature. Conjunto
@@ -39,17 +42,8 @@ export type Layer =
  */
 export type Context = string;
 
-/** Um arquivo alterado vindo de uma fonte (serviço), antes de categorizado. */
-export interface DiffFile {
-  path: string;
-  /** Diff unified (hunks) do arquivo; `null` quando a fonte não traz patch. */
-  patch: string | null;
-}
-
 /** Arquivo já com sua camada resolvida — o que a árvore carrega nas folhas. */
-export interface ChangedFile {
-  path: string;
-  patch: string | null;
+export interface ChangedFile extends DiffFile {
   layer: Layer;
 }
 
@@ -316,7 +310,7 @@ export function groupReview(files: DiffFile[], profile: Profile): GroupedReview 
 
 /** Resolve a camada de cada arquivo (CONTEXT.md §Camada), preservando patch e path. */
 function withLayers(files: DiffFile[]): ChangedFile[] {
-  return files.map((f) => ({ path: f.path, patch: f.patch, layer: categorize(f.path) }));
+  return files.map((f) => ({ ...f, layer: categorize(f.path) }));
 }
 
 /** Indexa por camada e devolve na ordem canônica, sem camadas vazias (PRD §4.2). */

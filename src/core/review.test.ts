@@ -9,7 +9,12 @@ import {
   type Layer,
 } from './review.js';
 
-const file = (path: string, patch: string | null = null): DiffFile => ({ path, patch });
+const file = (path: string, patch: string | null = null): DiffFile => ({
+  path,
+  status: { kind: 'modified' },
+  body: patch === null ? { kind: 'none' } : { kind: 'patch', patch },
+  url: null,
+});
 
 describe('categorize — camada por path (casos reais concilliun-crm)', () => {
   it.each<[string, Layer]>([
