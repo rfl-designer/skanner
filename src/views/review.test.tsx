@@ -27,6 +27,25 @@ const tick = async () => {
 };
 const noop = () => {};
 
+// Repo flat (soloboard): sem app/Contexts; o agrupamento é só por camada.
+const flatRepo: ResolvedRepo = {
+  root: '/repo',
+  identity: { kind: 'github', owner: 'rfl-designer', name: 'soloboard' },
+  profile: 'flat',
+  modularBaseDir: 'app/Contexts',
+  source: { profile: 'auto' },
+};
+
+const flatDiff: PrDiff = {
+  number: 50,
+  files: [
+    { path: 'tests/Feature/PlanTest.php', patch: '@@ -0 +1 @@\n+assert(true);' },
+    { path: 'app/Actions/CreatePlan.php', patch: '@@ -1 +1 @@\n+class CreatePlan {}' },
+    { path: 'app/Models/Plan.php', patch: '@@ -1 +1 @@\n+class Plan {}' },
+    { path: 'database/migrations/2024_create_plans_table.php', patch: null },
+  ],
+};
+
 const modularDiff: PrDiff = {
   number: 42,
   files: [
@@ -84,6 +103,39 @@ describe('ReviewView — árvore agrupada (AC1–AC3)', () => {
     // a migration foi pontuada ao Crm (ponte por nome create_contacts_table → Crm? não:
     // o substantivo é "contacts"; o contexto é "Crm", então NÃO casa) — fica em Sem contexto.
     unmount();
+  });
+});
+
+describe('ReviewView — agrupamento flat (perfil flat, #6)', () => {
+  it('agrupa só por camada na ordem migration→tests, sem nível de grupo', async () => {
+    diff.mockResolvedValue(flatDiff);
+    const { lastFrame, unmount } = render(<ReviewView repo={flatRepo} number={50} onBack={noop} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('Migration');
+    expect(frame).toContain('Model');
+    expect(frame).toContain('Actions');
+    expect(frame).toContain('Tests');
+    // ordem migration→tests preservada na árvore renderizada.
+    expect(frame.indexOf('Migration')).toBeLessThan(frame.indexOf('Tests'));
+    // sem nível de grupo: nem contexto, nem o balde "Sem contexto".
+    expect(frame).not.toContain('Sem contexto');
+    unmount();
+  });
+
+  it('mesmo render alterna por perfil: modular mostra grupo, flat não', async () => {
+    diff.mockResolvedValue(modularDiff);
+    const modular = render(<ReviewView repo={repo} number={42} onBack={noop} />);
+    await tick();
+    expect(modular.lastFrame() ?? '').toContain('Sem contexto');
+    modular.unmount();
+
+    diff.mockResolvedValue(flatDiff);
+    const flat = render(<ReviewView repo={flatRepo} number={50} onBack={noop} />);
+    await tick();
+    expect(flat.lastFrame() ?? '').not.toContain('Sem contexto');
+    flat.unmount();
   });
 });
 

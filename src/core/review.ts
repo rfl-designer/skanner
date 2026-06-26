@@ -3,8 +3,10 @@
  * §Agrupamento / §Funções-coração): puro, agnóstico de UI e de fonte, testável
  * isolado. As fontes (Octokit em #5, simple-git e grafo brain depois) só montam a
  * lista de arquivos alterados e patches; a regra de domínio (camada + contexto +
- * árvore) mora aqui, e nunca na view nem no serviço. Issue #5.
+ * árvore) mora aqui, e nunca na view nem no serviço. Issue #5 / #6.
  */
+
+import type { Profile } from './repo.js';
 
 /**
  * Camada (Layer) — papel arquitetural de um arquivo no fluxo da feature. Conjunto
@@ -63,10 +65,30 @@ export interface ContextGroup {
   layers: LayerGroup[];
 }
 
-/** Árvore de saída `Contexto → Camada → [arquivos]` (PRD §4). */
+/** Árvore de saída `Contexto → Camada → [arquivos]` (PRD §4, perfil modular). */
 export interface ReviewTree {
   groups: ContextGroup[];
 }
+
+/**
+ * Árvore de saída `Camada → [arquivos]` (PRD §4.0 estratégia 3, perfil `flat` sem
+ * grafo): a MESMA forma do modular, porém SEM o nível de grupo. A ausência de grupo
+ * é a forma do tipo — não há campo de contexto/fluxo — e não um string vazio.
+ */
+export interface FlatTree {
+  layers: LayerGroup[];
+}
+
+/**
+ * Saída do agrupamento conforme o [perfil do repo](repo.ts) — união discriminada por
+ * `profile` (CONTEXT.md §Grupo: contexto, fluxo, ou AUSENTE). `modular` carrega
+ * `groups` (Contexto → Camada); `flat` carrega só `layers` (Camada). O nível de grupo
+ * está ausente no `flat` por construção: estados impossíveis (flat com contexto,
+ * modular sem grupo) são irrepresentáveis.
+ */
+export type GroupedReview =
+  | { profile: 'modular'; groups: ContextGroup[] }
+  | { profile: 'flat'; layers: LayerGroup[] };
 
 /** Rótulo do balde sem contexto (CONTEXT.md §Balde "Sem contexto"). */
 export const NO_CONTEXT_LABEL = 'Sem contexto';
@@ -240,11 +262,7 @@ export function resolveContext(path: string, scopeContextSet: ReadonlySet<Contex
  * camadas vazias omitidas (PRD §4.2).
  */
 export function buildReviewTree(files: DiffFile[]): ReviewTree {
-  const withLayer: ChangedFile[] = files.map((f) => ({
-    path: f.path,
-    patch: f.patch,
-    layer: categorize(f.path),
-  }));
+  const withLayer = withLayers(files);
 
   const scope = new Set<Context>();
   for (const f of withLayer) {
@@ -273,6 +291,32 @@ export function buildReviewTree(files: DiffFile[]): ReviewTree {
   }));
 
   return { groups };
+}
+
+/**
+ * Agrupa a review SÓ por camada, na ordem canônica (PRD §4.0 estratégia 3, perfil
+ * `flat`): reusa `categorize` e `LAYER_ORDER`, sem qualquer dimensão de grupo. É o
+ * mesmo nível do meio do modular, isolado.
+ */
+export function buildFlatTree(files: DiffFile[]): FlatTree {
+  return { layers: toLayerGroups(withLayers(files)) };
+}
+
+/**
+ * Despacha o agrupamento pela [hierarquia de estratégia](CONTEXT.md §Hierarquia de
+ * estratégia) do perfil do repo: `modular` → `buildReviewTree` (Contexto → Camada);
+ * `flat` → `buildFlatTree` (só Camada). Único ponto onde o perfil decide a forma —
+ * a view só consome a união. (O nível 2, `flat` + grafo, é de outra issue.)
+ */
+export function groupReview(files: DiffFile[], profile: Profile): GroupedReview {
+  return profile === 'flat'
+    ? { profile: 'flat', ...buildFlatTree(files) }
+    : { profile: 'modular', ...buildReviewTree(files) };
+}
+
+/** Resolve a camada de cada arquivo (CONTEXT.md §Camada), preservando patch e path. */
+function withLayers(files: DiffFile[]): ChangedFile[] {
+  return files.map((f) => ({ path: f.path, patch: f.patch, layer: categorize(f.path) }));
 }
 
 /** Indexa por camada e devolve na ordem canônica, sem camadas vazias (PRD §4.2). */

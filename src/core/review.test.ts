@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildFlatTree,
   buildReviewTree,
   categorize,
+  groupReview,
   resolveContext,
   type DiffFile,
   type Layer,
@@ -150,5 +152,61 @@ describe('buildReviewTree — árvore Contexto → Camada → [arquivos]', () =>
       file('app/Contexts/Billing/Models/Invoice.php'),
     ]);
     expect(tree.groups.map((g) => g.context)).toEqual(['Billing', 'Crm']);
+  });
+});
+
+describe('buildFlatTree — árvore Camada → [arquivos] (perfil flat, #6)', () => {
+  // Repo flat (soloboard): sem app/Contexts, sem contexto no path.
+  const flatFiles = [
+    file('tests/Feature/PlanTest.php'),
+    file('app/Actions/CreatePlan.php'),
+    file('app/Models/Plan.php'),
+    file('database/migrations/2024_create_plans_table.php'),
+  ];
+
+  it('agrupa só por camada, na ordem migration→tests (AC1)', () => {
+    const tree = buildFlatTree(flatFiles);
+    expect(tree.layers.map((l) => l.layer)).toEqual(['migration', 'model', 'action', 'tests']);
+  });
+
+  it('não há nível de grupo: nenhuma chave de contexto na saída (AC2)', () => {
+    const tree = buildFlatTree(flatFiles);
+    // A forma carrega só `layers`; o nível de grupo está ausente por construção.
+    expect(tree).not.toHaveProperty('groups');
+    expect(Object.keys(tree)).toEqual(['layers']);
+  });
+
+  it('camadas vazias são omitidas e as folhas preservam path/patch', () => {
+    const tree = buildFlatTree([file('app/Models/Plan.php', '@@\n+x')]);
+    expect(tree.layers).toHaveLength(1);
+    expect(tree.layers[0].files).toEqual([
+      { path: 'app/Models/Plan.php', patch: '@@\n+x', layer: 'model' },
+    ]);
+  });
+});
+
+describe('groupReview — despacho por perfil; alternar modular↔flat (AC3)', () => {
+  // MESMOS arquivos resolvidos por cada perfil produzem a forma correta de cada um.
+  const files = [
+    file('app/Contexts/Crm/Models/Contact.php'),
+    file('database/migrations/2024_create_contacts_table.php'),
+    file('tests/Feature/Crm/CreateContactTest.php'),
+  ];
+
+  it('modular → groups (Contexto → Camada), igual a buildReviewTree', () => {
+    const review = groupReview(files, 'modular');
+    expect(review.profile).toBe('modular');
+    if (review.profile !== 'modular') throw new Error('esperava modular');
+    expect(review.groups).toEqual(buildReviewTree(files).groups);
+    expect(review.groups.some((g) => g.context === 'Crm')).toBe(true);
+  });
+
+  it('flat → layers (só Camada), igual a buildFlatTree, sem nível de grupo', () => {
+    const review = groupReview(files, 'flat');
+    expect(review.profile).toBe('flat');
+    if (review.profile !== 'flat') throw new Error('esperava flat');
+    expect(review.layers).toEqual(buildFlatTree(files).layers);
+    expect(review).not.toHaveProperty('groups');
+    expect(review.layers.map((l) => l.layer)).toEqual(['migration', 'model', 'tests']);
   });
 });
