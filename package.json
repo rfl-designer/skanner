@@ -1,14 +1,29 @@
 {
   "name": "skanner",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "TUI pessoal que reorganiza o diff de uma PR como fatia vertical para revisão.",
+  "license": "UNLICENSED",
   "type": "module",
+  "bin": {
+    "skanner": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rfl-designer/skanner.git"
+  },
   "scripts": {
     "dev": "tsx --watch src/cli.tsx",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "cli-highlight": "^2.1.11",
