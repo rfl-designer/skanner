@@ -106,6 +106,17 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
     unmount();
   });
 
+  it('rodapé da view tem [↑/↓]/[e] mas NÃO repete [r] recarregar (vive no rodapé global, #36)', async () => {
+    diff.mockResolvedValue(migrationOnly);
+    const { lastFrame, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('[↑/↓] arquivo'); // atalhos contextuais da view seguem
+    expect(frame).toContain('[e] expandir');
+    expect(frame).not.toContain('recarregar'); // o [r] não é duplicado aqui
+    unmount();
+  });
+
   it('multi-camada: lista todas as camadas no topo, agrupado por contexto (AC4, degradação graciosa)', async () => {
     diff.mockResolvedValue(multiLayer);
     const { lastFrame, unmount } = render(<WorkingDiffView repo={modularRepo} />);
