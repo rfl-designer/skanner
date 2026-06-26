@@ -3,19 +3,21 @@ import type { DiffFile } from '../core/diff.js';
 
 // Mocka simple-git e fs: o serviço é testado sem repo git real e sem fs real.
 // `add` é incluído só para PROVAR que nunca é chamado (index não é tocado).
-const { status, gitDiff, add, revparse } = vi.hoisted(() => ({
+const { status, gitDiff, add, revparse, reset, gitCommit } = vi.hoisted(() => ({
   status: vi.fn(),
   gitDiff: vi.fn(),
   add: vi.fn(),
   revparse: vi.fn(),
+  reset: vi.fn(),
+  gitCommit: vi.fn(),
 }));
 vi.mock('simple-git', () => ({
-  simpleGit: vi.fn(() => ({ status, diff: gitDiff, add, revparse })),
+  simpleGit: vi.fn(() => ({ status, diff: gitDiff, add, revparse, reset, commit: gitCommit })),
 }));
 const { readFile } = vi.hoisted(() => ({ readFile: vi.fn() }));
 vi.mock('node:fs', () => ({ promises: { readFile } }));
 
-import { diff } from './local.js';
+import { commit, diff, stage, stagedDiff, stagedPaths, unstage } from './local.js';
 
 /** StatusResult mínimo: só os campos que o serviço lê. */
 const statusResult = (
@@ -27,6 +29,8 @@ beforeEach(() => {
   status.mockReset();
   gitDiff.mockReset();
   add.mockReset();
+  reset.mockReset();
+  gitCommit.mockReset();
   readFile.mockReset();
   // Default: repo com HEAD (revparse resolve). O caso sem HEAD sobrescreve.
   revparse.mockReset();
@@ -241,5 +245,46 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
     ]);
     expect(files[0].status).toEqual({ kind: 'added' });
     expect(add).not.toHaveBeenCalled();
+  });
+});
+
+describe('local — escritas do portão de commit (#47)', () => {
+  it('stagedPaths: parseia o name-only do diff --cached num Set, ignorando vazios', async () => {
+    gitDiff.mockResolvedValue('a.ts\nsrc/b.ts\n\n');
+    const paths = await stagedPaths('/repo');
+    expect(gitDiff).toHaveBeenCalledWith(['--cached', '--name-only']);
+    expect(paths).toEqual(new Set(['a.ts', 'src/b.ts']));
+  });
+
+  it('stage: git add dos paths; no-op sem paths', async () => {
+    await stage('/repo', ['a.ts', 'b.ts']);
+    expect(add).toHaveBeenCalledWith(['a.ts', 'b.ts']);
+    add.mockClear();
+    await stage('/repo', []);
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it('unstage: git reset -- <paths> (não toca a working tree); no-op sem paths', async () => {
+    await unstage('/repo', ['a.ts']);
+    expect(reset).toHaveBeenCalledWith(['--', 'a.ts']);
+    reset.mockClear();
+    await unstage('/repo', []);
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('stagedDiff: git diff --cached dos paths', async () => {
+    gitDiff.mockResolvedValue('PATCH');
+    expect(await stagedDiff('/repo', ['a.ts'])).toBe('PATCH');
+    expect(gitDiff).toHaveBeenCalledWith(['--cached', '--', 'a.ts']);
+  });
+
+  it('commit: git commit com a mensagem', async () => {
+    await commit('/repo', 'feat: x');
+    expect(gitCommit).toHaveBeenCalledWith('feat: x');
+  });
+
+  it('commit: falha do hook propaga como erro (staging fica de pé)', async () => {
+    gitCommit.mockRejectedValue(new Error('pre-commit hook failed'));
+    await expect(commit('/repo', 'feat: x')).rejects.toThrow('pre-commit hook failed');
   });
 });

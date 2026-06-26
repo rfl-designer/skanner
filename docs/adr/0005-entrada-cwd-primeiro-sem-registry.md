@@ -8,6 +8,15 @@ Status: aceito · 2026-06-25
 > repo** (`[w]`), com debounce e ignore de diretórios de ruído — o refresh manual (`[r]`) continua
 > sendo o caminho base. O restante deste ADR (cwd-primeiro, sem registry, remoto lazy) segue
 > vigente. Ver issue #15 e `.scratch/local-pre-commit-review/PRD.md`.
+>
+> **Atualização — 2026-06-26 (issue #47):** a premissa **read-only** do Skanner (este ADR e o
+> serviço `local`, que só lia `status`/`diff HEAD`) ganha **uma** exceção deliberada: o **portão
+> de commit local**. A leitura segue read-only em tudo (navegação, PRs); a escrita
+> (`stage`/`commit`) fica **isolada atrás de uma ação explícita da aba local** (`[c]`, com
+> arquivos marcados), nunca solta no resto da superfície. O agente externo continua sendo um
+> caminho válido — o portão é uma conveniência, não o substitui. A IA (`claude -p`) só rascunha a
+> mensagem; todo o git é do código do Skanner. Push fica fora de escopo (para no commit local).
+> Ver issue #47 e `.scratch/local-commit-gate/PRD.md`.
 
 ## Contexto
 

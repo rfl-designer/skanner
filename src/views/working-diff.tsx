@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import TextInput from 'ink-text-input';
 import * as local from '../services/local.js';
+import { generate } from '../services/commit-message.js';
+import { issueBody as fetchIssueBody } from '../services/issue.js';
 import {
   groupReview,
   LAYER_LABEL,
@@ -10,6 +13,15 @@ import {
   type Layer,
   type LayerGroup,
 } from '../core/review.js';
+import {
+  assembleMessage,
+  buildPrompt,
+  COMMIT_TYPES,
+  parseIssueInput,
+  pathsToReset,
+  type CommitType,
+  type IssueContext,
+} from '../core/commit.js';
 import { detectedLayers, preserveCursor } from '../core/local.js';
 import { hunkStarts } from '../core/diff.js';
 import type { ResolvedRepo } from '../core/repo.js';
@@ -37,6 +49,21 @@ type LocalState =
   | { status: 'ready'; review: GroupedReview; files: ChangedFile[]; layers: Layer[] };
 
 /**
+ * Sub-fluxo do **portão de commit** (issue #47), sobreposto ao `ready`. `idle` é
+ * navegação normal; `[c]` (com ≥1 marcado) entra em `type` → `issue` → `staging`
+ * → `generating` → `preview`. `toReset` (capturado pós-stage) são só os paths que
+ * o portão stageou — o que o cancelamento desfaz, nunca o pré-staged (#47).
+ */
+type Gate =
+  | { phase: 'idle' }
+  | { phase: 'type' }
+  | { phase: 'issue'; type: CommitType }
+  | { phase: 'generating'; toReset: string[] }
+  | { phase: 'preview'; type: CommitType; issue: IssueContext; body: string; aiAssisted: boolean; toReset: string[]; error?: string }
+  | { phase: 'editing'; type: CommitType; issue: IssueContext; aiAssisted: boolean; toReset: string[]; draft: string }
+  | { phase: 'committing' };
+
+/**
  * Gatilho de reload vindo da fiação (`app.tsx`): `nonce` muda a cada pedido de
  * recarga; `preserve` distingue o auto-watch (preserva o cursor por caminho) do
  * `[r]` manual (reseta ao topo). Issue #37.
@@ -56,6 +83,15 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   const [focus, setFocus] = useState<'sidebar' | 'diff'>('sidebar');
   // Bloco (hunk) em foco no diff; [j/k] caminha entre eles quando o foco é o diff.
   const [hunkIdx, setHunkIdx] = useState(0);
+  // Arquivos marcados para o commit ([espaço]). Efêmero: NÃO persiste no conf
+  // (diferente do checklist de PR) e zera a cada reload. Issue #46.
+  const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set());
+  // Sub-fluxo do portão de commit (#47) e o handle de abort do claude -p.
+  const [gate, setGate] = useState<Gate>({ phase: 'idle' });
+  const [issueInput, setIssueInput] = useState('');
+  const gateAbort = useRef<AbortController | null>(null);
+  // Reload interno disparado após um commit (some o que foi commitado).
+  const [selfReload, setSelfReload] = useState(0);
   const maxRows = useDiffViewport();
 
   // Seleção atual (caminho + índice + estado de leitura) num ref, para o reload
@@ -101,6 +137,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         setExpanded(samePath ? keep.expanded : false);
         setFocus(samePath ? keep.focus : 'sidebar');
         setHunkIdx(samePath ? keep.hunkIdx : 0);
+        setMarked(new Set()); // marcação é efêmera: some ao recarregar (AC #46).
         setState({ status: 'ready', review, files: flat, layers: detectedLayers(files) });
       })
       .catch((err: unknown) => {
@@ -109,11 +146,140 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
     return () => {
       cancelled = true;
     };
-  }, [repo, reload]);
+  }, [repo, reload, selfReload]);
+
+  /** Marca/desmarca o arquivo sob o cursor para o commit. Sem persistência (#46). */
+  function toggleMarked() {
+    if (state.status !== 'ready') return;
+    const path = state.files[Math.min(cursor, state.files.length - 1)].path;
+    const next = new Set(marked);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setMarked(next);
+  }
+
+  /**
+   * Inicia o portão: stage dos marcados (capturando o pré-staged p/ o reset
+   * seguro), monta o prompt (diff staged + issue/intenção) e dispara o claude -p
+   * abortável. Falha da IA degrada p/ o preview editável (#47).
+   */
+  async function runGate(type: CommitType, raw: string) {
+    const issue = parseIssueInput(raw);
+    const paths = [...marked];
+    let toReset: string[] = [];
+    try {
+      const before = await local.stagedPaths(repo.root);
+      await local.stage(repo.root, paths);
+      toReset = pathsToReset(paths, before);
+    } catch (err) {
+      setGate({ phase: 'idle' });
+      setState({ status: 'error', message: errorMessage(err) });
+      return;
+    }
+    setGate({ phase: 'generating', toReset });
+
+    const controller = new AbortController();
+    gateAbort.current = controller;
+    const stagedDiff = await local.stagedDiff(repo.root, paths);
+    const body = issue.kind === 'issue' ? await fetchIssueBody(repo, issue.number) : null;
+    const intent = issue.kind === 'intent' ? issue.text : null;
+    const result = await generate({
+      prompt: buildPrompt({ stagedDiff, issueBody: body, intent }),
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted) return; // cancelado no spinner: o cancelGate já reverteu.
+    gateAbort.current = null;
+
+    if (result.kind === 'ok') {
+      setGate({ phase: 'preview', type, issue, body: result.message, aiAssisted: true, toReset });
+    } else {
+      // IA indisponível/lixo: cai no preview manual com o prefixo já montado (#47).
+      setGate({ phase: 'preview', type, issue, body: '', aiAssisted: false, toReset });
+    }
+  }
+
+  /** Cancela o portão: aborta o claude -p (se rodando) e desfaz só o que stageou. */
+  async function cancelGate(toReset: string[]) {
+    gateAbort.current?.abort();
+    gateAbort.current = null;
+    setGate({ phase: 'idle' });
+    setIssueInput('');
+    await local.unstage(repo.root, toReset);
+  }
+
+  /** Commita a mensagem montada; sucesso zera a marcação e recarrega. */
+  async function doCommit(
+    message: string,
+    ctx: { type: CommitType; issue: IssueContext; body: string; aiAssisted: boolean; toReset: string[] },
+  ) {
+    setGate({ phase: 'committing' });
+    try {
+      await local.commit(repo.root, message);
+    } catch (err) {
+      // Hook barrou etc.: volta ao preview com o erro; o staging fica de pé.
+      setGate({ phase: 'preview', ...ctx, error: errorMessage(err) });
+      return;
+    }
+    setGate({ phase: 'idle' });
+    setIssueInput('');
+    setSelfReload((n) => n + 1); // recarrega: marcação zera no efeito, o commitado some.
+  }
+
+  /** Input do portão por fase. Os campos de texto (`issue`/`editing`) são do TextInput; aqui só esc/enter/seleção. */
+  function handleGateInput(input: string, key: { escape: boolean; return: boolean }) {
+    if (gate.phase === 'type') {
+      if (key.escape) setGate({ phase: 'idle' });
+      else {
+        const idx = Number(input) - 1; // seleção 1-based por dígito
+        if (Number.isInteger(idx) && idx >= 0 && idx < COMMIT_TYPES.length) {
+          setIssueInput('');
+          setGate({ phase: 'issue', type: COMMIT_TYPES[idx] });
+        }
+      }
+      return;
+    }
+    if (gate.phase === 'issue') {
+      if (key.escape) {
+        setIssueInput('');
+        setGate({ phase: 'idle' });
+      }
+      return; // chars + enter: TextInput (onSubmit dispara runGate).
+    }
+    if (gate.phase === 'generating') {
+      if (key.escape) void cancelGate(gate.toReset);
+      return;
+    }
+    if (gate.phase === 'preview') {
+      const ctx = { type: gate.type, issue: gate.issue, body: gate.body, aiAssisted: gate.aiAssisted, toReset: gate.toReset };
+      if (key.return && gate.body.trim().length > 0) {
+        void doCommit(assembleMessage({ type: gate.type, issue: gate.issue, body: gate.body, aiAssisted: gate.aiAssisted }), ctx);
+      } else if (input === 'e') {
+        setGate({ phase: 'editing', type: gate.type, issue: gate.issue, aiAssisted: gate.aiAssisted, toReset: gate.toReset, draft: gate.body });
+      } else if (key.escape) {
+        void cancelGate(gate.toReset);
+      }
+      return;
+    }
+    if (gate.phase === 'editing') {
+      if (key.escape)
+        setGate({ phase: 'preview', type: gate.type, issue: gate.issue, body: gate.draft, aiAssisted: gate.aiAssisted, toReset: gate.toReset });
+      return; // chars + enter: TextInput (onSubmit aplica o draft).
+    }
+    // committing: sem input enquanto o git roda.
+  }
 
   useInput((input, key) => {
+    // Portão ativo: rota própria de input (o resto da navegação fica suspenso).
+    if (gate.phase !== 'idle') {
+      handleGateInput(input, key);
+      return;
+    }
     if (state.status !== 'ready') return;
-    if (input === 'h') {
+    if (input === 'c' && marked.size > 0) {
+      setGate({ phase: 'type' });
+    } else if (input === ' ') {
+      toggleMarked();
+    } else if (input === 'h') {
       setFocus('sidebar');
       setExpanded(false);
     } else if (input === 'l') {
@@ -160,6 +326,96 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
     return <Text dimColor>nada para revisar — tudo commitado.</Text>;
   }
 
+  if (gate.phase !== 'idle') {
+    return (
+      <Box flexDirection="column">
+        <Text bold color="cyan">
+          Commit — {marked.size} arquivo(s) marcado(s)
+        </Text>
+        {gate.phase === 'type' && (
+          <Box marginTop={1} flexDirection="column">
+            <Text>Tipo do commit:</Text>
+            {COMMIT_TYPES.map((t, i) => (
+              <Text key={t}>
+                <Text color="yellow">{`  ${i + 1}`}</Text> {t}
+              </Text>
+            ))}
+            <Text dimColor>[1-{COMMIT_TYPES.length}] escolher · [esc] cancelar</Text>
+          </Box>
+        )}
+        {gate.phase === 'issue' && (
+          <Box marginTop={1} flexDirection="column">
+            <Text>
+              <Text color="green">{gate.type}</Text> · issue ou intenção:
+            </Text>
+            <Box>
+              <Text>{'  › '}</Text>
+              <TextInput
+                value={issueInput}
+                onChange={setIssueInput}
+                onSubmit={(v) => void runGate(gate.type, v)}
+                placeholder="número (#NN) ou uma linha de intenção; vazio = sem issue"
+              />
+            </Box>
+            <Text dimColor>[enter] gerar · [esc] cancelar</Text>
+          </Box>
+        )}
+        {gate.phase === 'generating' && (
+          <Box marginTop={1} flexDirection="column">
+            <Text dimColor>gerando a mensagem com o claude…</Text>
+            <Text dimColor>[esc] cancelar (desfaz o staging)</Text>
+          </Box>
+        )}
+        {gate.phase === 'committing' && <Text dimColor>commitando…</Text>}
+        {gate.phase === 'editing' && (
+          <Box marginTop={1} flexDirection="column">
+            <Text>Editar a mensagem:</Text>
+            <Box>
+              <Text>{'  › '}</Text>
+              <TextInput
+                value={gate.draft}
+                onChange={(v) => setGate({ ...gate, draft: v })}
+                onSubmit={(v) =>
+                  setGate({
+                    phase: 'preview',
+                    type: gate.type,
+                    issue: gate.issue,
+                    body: v,
+                    aiAssisted: gate.aiAssisted,
+                    toReset: gate.toReset,
+                  })
+                }
+              />
+            </Box>
+            <Text dimColor>[enter] aplicar · [esc] descartar a edição</Text>
+          </Box>
+        )}
+        {gate.phase === 'preview' && (
+          <Box marginTop={1} flexDirection="column">
+            <Text dimColor>mensagem:</Text>
+            {gate.body.trim().length > 0 ? (
+              <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+                {assembleMessage({ type: gate.type, issue: gate.issue, body: gate.body, aiAssisted: gate.aiAssisted })
+                  .split('\n')
+                  .map((line, i) => (
+                    <Text key={i}>{line}</Text>
+                  ))}
+              </Box>
+            ) : (
+              <Text color="yellow">
+                IA indisponível — o prefixo é {assembleMessage({ type: gate.type, issue: gate.issue, body: '', aiAssisted: false })}; [e] para escrever à mão.
+              </Text>
+            )}
+            {gate.error ? <Text color="red">commit falhou: {gate.error}</Text> : null}
+            <Text dimColor>
+              {gate.body.trim().length > 0 ? '[enter] commitar · ' : ''}[e] editar · [esc] cancelar (desfaz o staging)
+            </Text>
+          </Box>
+        )}
+      </Box>
+    );
+  }
+
   const selected = state.files[Math.min(cursor, state.files.length - 1)];
   const hunks = selected.body.kind === 'patch' ? hunkStarts(selected.body.patch) : [];
   const safeHunk = Math.min(hunkIdx, Math.max(0, hunks.length - 1));
@@ -172,7 +428,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
       </Text>
       <Box marginTop={1} flexDirection="row" gap={2}>
-        {!expanded && <LocalTree review={state.review} selectedPath={selected.path} />}
+        {!expanded && <LocalTree review={state.review} selectedPath={selected.path} marked={marked} />}
         <Box flexDirection="column" flexShrink={1}>
           <Text>
             {selected.status.kind === 'renamed' ? (
@@ -190,7 +446,9 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         </Box>
       </Box>
       <Text dimColor>
-        {onDiff ? '[j/k] bloco · [h] sidebar · [tab] dobrar' : '[j/k] arquivo · [l] diff · [tab] expandir'}
+        {onDiff
+          ? '[j/k] bloco · [h] sidebar · [tab] dobrar'
+          : `[j/k] arquivo · [l] diff · [espaço] marcar${marked.size > 0 ? ' · [c] commitar' : ''} · [tab] expandir`}
       </Text>
     </Box>
   );
@@ -208,11 +466,19 @@ function layerHeader(layers: Layer[]): string {
  * (modular: Contexto → Camada → arquivo; flat: só Camada → arquivo), com o cursor
  * marcado. Sem checkbox/agregado — o checklist é do modo remoto (PRD §3).
  */
-function LocalTree({ review, selectedPath }: { review: GroupedReview; selectedPath: string }) {
+function LocalTree({
+  review,
+  selectedPath,
+  marked,
+}: {
+  review: GroupedReview;
+  selectedPath: string;
+  marked: ReadonlySet<string>;
+}) {
   if (review.profile === 'flat') {
     return (
       <Box flexDirection="column">
-        <LayerList layers={review.layers} selectedPath={selectedPath} />
+        <LayerList layers={review.layers} selectedPath={selectedPath} marked={marked} />
       </Box>
     );
   }
@@ -223,7 +489,7 @@ function LocalTree({ review, selectedPath }: { review: GroupedReview; selectedPa
           <Text bold color="cyan">
             {group.context ?? NO_CONTEXT_LABEL}
           </Text>
-          <LayerList layers={group.layers} selectedPath={selectedPath} />
+          <LayerList layers={group.layers} selectedPath={selectedPath} marked={marked} />
         </Box>
       ))}
     </Box>
@@ -231,7 +497,15 @@ function LocalTree({ review, selectedPath }: { review: GroupedReview; selectedPa
 }
 
 /** Nível Camada → arquivo, compartilhado pelos perfis modular e flat. */
-function LayerList({ layers, selectedPath }: { layers: LayerGroup[]; selectedPath: string }) {
+function LayerList({
+  layers,
+  selectedPath,
+  marked,
+}: {
+  layers: LayerGroup[];
+  selectedPath: string;
+  marked: ReadonlySet<string>;
+}) {
   return (
     <>
       {layers.map((layer) => (
@@ -239,9 +513,11 @@ function LayerList({ layers, selectedPath }: { layers: LayerGroup[]; selectedPat
           <Text dimColor> {LAYER_LABEL[layer.layer]}</Text>
           {layer.files.map((file) => {
             const here = file.path === selectedPath;
+            const isMarked = marked.has(file.path);
             return (
               <Text key={file.path} color={here ? 'green' : undefined}>
                 {here ? ' › ' : '   '}
+                {isMarked ? '✓ ' : '  '}
                 {basename(file.path)}
               </Text>
             );
