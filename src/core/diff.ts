@@ -136,6 +136,17 @@ export function isOversized(body: DiffBody, ceiling: number = COLLAPSE_CEILING):
 }
 
 /**
+ * O arquivo tem **conteúdo de texto presente no disco** para abrir no modal de
+ * arquivo completo ([z], issue #53)? Só corpo `patch` carrega texto — mas o
+ * **deletado** também vem como `patch` (o diff de remoção), e dele não há arquivo
+ * no disco a ler. Logo: patch E não-removido. Binário, diretório colapsado
+ * (`none`) e truncado ficam de fora — `z` é no-op silencioso neles.
+ */
+export function isViewable(file: Pick<DiffFile, 'status' | 'body'>): boolean {
+  return file.body.kind === 'patch' && file.status.kind !== 'removed';
+}
+
+/**
  * Índices (0-based) das linhas que abrem um hunk (`@@ … @@`) no patch — as
  * âncoras por onde o [j/k] salta no diff (navegação por bloco). Vazio quando o
  * patch não tem cabeçalho de hunk (ex.: corpo já fatiado pelo serviço local).
