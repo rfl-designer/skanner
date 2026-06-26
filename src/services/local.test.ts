@@ -72,6 +72,22 @@ describe('local.diff — change-set não-commitado (staged+unstaged+untracked)',
     expect(add).not.toHaveBeenCalled();
   });
 
+  it('diretório untracked colapsado (repo git embarcado: `?? dir/`): vira added sem corpo, sem ler o fs (não dá EISDIR)', async () => {
+    // O git não recursiona num repo embarcado e devolve a entrada com barra final;
+    // o serviço lia isso com fs.readFile e quebrava com "EISDIR ... read",
+    // derrubando o Working diff inteiro.
+    status.mockResolvedValue(statusResult([{ path: 'embedded/', index: '?', working_dir: '?' }]));
+
+    const files = await diff('/repo');
+
+    expect(files).toEqual<DiffFile[]>([
+      { path: 'embedded', status: { kind: 'added' }, body: { kind: 'none' }, url: null },
+    ]);
+    // não tentou ler o diretório como arquivo nem rodou git diff nele.
+    expect(readFile).not.toHaveBeenCalled();
+    expect(gitDiff).not.toHaveBeenCalled();
+  });
+
   it('o index NÃO é tocado: nunca chama add/add -N (read-only, AC)', async () => {
     status.mockResolvedValue(
       statusResult([{ path: 'novo.ts', index: '?', working_dir: '?' }]),
