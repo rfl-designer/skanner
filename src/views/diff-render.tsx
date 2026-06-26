@@ -35,7 +35,7 @@ export function FileDiff({ file, expanded }: { file: ChangedFile; expanded: bool
     case 'patch': {
       if (isOversized(body) && !expanded) {
         const lines = body.patch.split('\n').length;
-        return <Text dimColor>(arquivo grande: {lines} linhas — [e] expandir)</Text>;
+        return <Text dimColor>(arquivo grande: {lines} linhas — [tab] expandir)</Text>;
       }
       const lang = languageOf(file.path);
       return (

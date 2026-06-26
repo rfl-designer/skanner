@@ -49,10 +49,10 @@ describe('App', () => {
     unmount();
   });
 
-  it('alterna para a aba PRs com [tab] e cai no fluxo de auth', async () => {
+  it('alterna para a aba PRs com [→] e cai no fluxo de auth', async () => {
     const { lastFrame, stdin, unmount } = render(<App repo={repo} />);
 
-    stdin.write('\t');
+    stdin.write('[C');
     await tick();
 
     expect(lastFrame()).toContain('Personal Access Token');

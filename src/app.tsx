@@ -21,7 +21,7 @@ type Editing = { profile: Profile; dir: string };
 
 /**
  * Shell da TUI (fiação, sem regra de domínio): título, roteamento de abas e os
- * atalhos globais do modelo cwd-primeiro (ADR 0005) — `[tab]` Working diff ⇄ PRs,
+ * atalhos globais do modelo cwd-primeiro (ADR 0005) — `[←/→]` Working diff ⇄ PRs,
  * `[r]` recarrega o Working diff, `[m]` alterna o perfil e edita o `modularBaseDir`
  * inline (persistido por path no `conf`), `[w]` liga/desliga o auto-watch (issue #15,
  * persistido por path), `[q]` sai, `?` abre a folha de atalhos. O repo resolvido vive
@@ -99,7 +99,7 @@ export function App({ repo: initialRepo }: { repo: ResolvedRepo }) {
       return;
     }
 
-    if (key.tab) {
+    if (key.leftArrow || key.rightArrow) {
       setTab((t) => (t === 'local' ? 'prs' : 'local'));
       return;
     }
@@ -182,9 +182,9 @@ function ProfileLine({
 
 function footer({ capturing, editing, tab, autoWatch }: { capturing: boolean; editing: boolean; tab: Tab; autoWatch: boolean }): string {
   if (editing) return '[enter] salva · [esc] cancela';
-  if (capturing) return '[tab] alterna aba · [?] atalhos';
+  if (capturing) return '[←/→] alterna aba · [?] atalhos';
   const local = tab === 'local' ? ` · [r] recarregar · [m] perfil · [w] auto-watch: ${autoWatch ? 'on' : 'off'}` : '';
-  return `[tab] alterna aba${local} · [?] atalhos · [q] sair`;
+  return `[←/→] alterna aba${local} · [?] atalhos · [q] sair`;
 }
 
 /** Folha de atalhos global (`?`), AC 5 da issue #11; `[w]` da issue #15. */
@@ -194,7 +194,7 @@ function AppHelp({ autoWatch }: { autoWatch: boolean }) {
       <Text bold color="cyan">
         Atalhos — Skanner
       </Text>
-      <Shortcut keys="tab" desc="alterna Working diff ⇄ PRs" />
+      <Shortcut keys="←/→" desc="alterna Working diff ⇄ PRs" />
       <Shortcut keys="r" desc="recarrega o Working diff" />
       <Shortcut keys="m" desc="alterna perfil e edita o modularBaseDir" />
       <Shortcut keys="w" desc={`liga/desliga o auto-watch do Working diff (${autoWatch ? 'on' : 'off'})`} />
