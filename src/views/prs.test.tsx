@@ -179,6 +179,35 @@ describe('PrsView — lista de PRs (issue #4 + #9)', () => {
     unmount();
   });
 
+  it('PAT inválido na busca (401): volta ao prompt (Settings) p/ recolar (AC3)', async () => {
+    authenticatedUser.mockResolvedValue({ login: 'rafa' });
+    revalidate.mockRejectedValue({ status: 401, message: 'Bad credentials' });
+
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
+    await tick();
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('Personal Access Token');
+    expect(frame).toContain('PAT inválido');
+    unmount();
+  });
+
+  it('rate limit na busca (403): mostra quando reseta, sem loop (AC3)', async () => {
+    authenticatedUser.mockResolvedValue({ login: 'rafa' });
+    revalidate.mockRejectedValue({
+      status: 403,
+      response: { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1750001600' } },
+    });
+
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} onOpenPr={noop} />);
+    await tick();
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('rate limit');
+    expect(frame).toContain('reseta às 15:33 UTC');
+    unmount();
+  });
+
   it('[r] força a revalidação da lista', async () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
     revalidate.mockResolvedValue(cachedList([]));

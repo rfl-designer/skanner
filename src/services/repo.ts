@@ -6,9 +6,10 @@ import {
   mergeOverride,
   modularBaseDirFor,
   parseOriginUrl,
+  type RepoOverride,
   type ResolvedRepo,
 } from '../core/repo.js';
-import { readOverride } from './conf.js';
+import { readOverride, writeOverride } from './conf.js';
 
 const run = promisify(execFile);
 
@@ -61,4 +62,13 @@ export async function resolveFromCwd(cwd: string = process.cwd()): Promise<Resol
   ]);
   const merged = mergeOverride({ parsedIdentity: parseOriginUrl(url), hasModularBaseDir, override });
   return { root, ...merged };
+}
+
+/**
+ * Persiste a correção inline do `[m]` (issue #11) no mapa `path → overrides`, por
+ * raiz do repo. Fronteira app↔Node: a regra (qual perfil/dir) vem do núcleo
+ * (`applyProfileEdit`); aqui só o IO no `conf`.
+ */
+export function saveOverride(root: string, override: RepoOverride): void {
+  writeOverride(root, override);
 }

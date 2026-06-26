@@ -21,6 +21,7 @@ import {
   NO_FILTERS,
   type PrFilters,
 } from '../core/filterPrs.js';
+import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
 
 /**
@@ -116,6 +117,7 @@ export function PrsView({ repo, onCapturingChange, onOpenPr }: PrsViewProps) {
               repo={repo}
               onCapturingChange={setListCapturing}
               onOpenPr={onOpenPr}
+              onReauth={(reason) => setState({ status: 'prompt', error: reason })}
             />
           </Box>
         ) : (
@@ -140,27 +142,31 @@ export function PrsView({ repo, onCapturingChange, onOpenPr }: PrsViewProps) {
 }
 
 /**
- * Lista de PRs abertas com cache e frescor (issue #4 + #9). Máquina de estados
+ * Lista de PRs abertas com cache e frescor (issue #4 + #9 + #10). Máquina de estados
  * sobre o cache do `conf` (`readCache`) + `revalidate` (stale-while-revalidate):
- * `readCache` pinta a lista na hora; `revalidate` traz o fresco em segundo plano.
- * `[r]` força a revalidação. Montada só com identidade GitHub — o repo local-only
- * é barrado pela `PrsView`.
+ * `readCache` pinta a lista na hora; `revalidate` traz o fresco em segundo plano;
+ * `[r]` força a revalidação. Montada só com identidade GitHub — o repo local-only é
+ * barrado pela `PrsView`. Erros viram variantes tipadas (#8): PAT inválido devolve ao
+ * prompt (Settings) via `onReauth`, sem rede oferece retry, rate limit mostra o reset.
  */
 type ListState =
   | { status: 'loading' }
   | { status: 'revalidating'; prs: PullRequest[]; fetchedAt: string }
   | { status: 'ready'; prs: PullRequest[]; fetchedAt: string }
   | { status: 'empty'; fetchedAt: string | null }
-  | { status: 'error'; error: string };
+  // PAT inválido nunca fica retido aqui — vai pro prompt (Settings) via `onReauth`.
+  | { status: 'error'; error: Exclude<GitHubError, { kind: 'invalid-pat' }> };
 
 function PrList({
   repo,
   onCapturingChange,
   onOpenPr,
+  onReauth,
 }: {
   repo: ResolvedRepo;
   onCapturingChange: (capturing: boolean) => void;
   onOpenPr: (number: number) => void;
+  onReauth: (reason: string) => void;
 }) {
   const [state, setState] = useState<ListState>({ status: 'loading' });
   const [nonce, setNonce] = useState(0);
@@ -202,12 +208,16 @@ function PrList({
         );
       })
       .catch((err: unknown) => {
-        if (!cancelled) setState({ status: 'error', error: message(err) });
+        if (cancelled) return;
+        const error = classifyGitHubError(err);
+        // PAT revogado/expirado: volta ao prompt da aba (Settings) p/ recolar.
+        if (error.kind === 'invalid-pat') onReauth('PAT inválido ou expirado — recole o token.');
+        else setState({ status: 'error', error });
       });
     return () => {
       cancelled = true;
     };
-  }, [repo, nonce]);
+  }, [repo, nonce, onReauth]);
 
   // PRs disponíveis p/ derivar as opções de ciclagem (base/autor presentes).
   const prs = state.status === 'ready' || state.status === 'revalidating' ? state.prs : [];
@@ -253,9 +263,20 @@ function PrList({
   }
 
   if (state.status === 'error') {
+    const error = state.error;
+    if (error.kind === 'rate-limit') {
+      return (
+        <Box flexDirection="column">
+          <Text color="red">rate limit do GitHub — reseta às {resetLabel(error.resetAt)}.</Text>
+          <Text dimColor>[r] atualizar</Text>
+        </Box>
+      );
+    }
     return (
       <Box flexDirection="column">
-        <Text color="red">erro: {state.error}</Text>
+        <Text color="red">
+          {error.kind === 'network' ? 'sem rede — falha ao listar PRs.' : `erro: ${error.message}`}
+        </Text>
         <Text dimColor>[r] tentar de novo</Text>
       </Box>
     );

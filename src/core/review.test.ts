@@ -4,12 +4,19 @@ import {
   buildReviewTree,
   categorize,
   groupReview,
+  groupStarts,
+  jumpGroup,
   resolveContext,
   type DiffFile,
   type Layer,
 } from './review.js';
 
-const file = (path: string, patch: string | null = null): DiffFile => ({ path, patch });
+const file = (path: string, patch: string | null = null): DiffFile => ({
+  path,
+  status: { kind: 'modified' },
+  body: patch === null ? { kind: 'none' } : { kind: 'patch', patch },
+  url: null,
+});
 
 describe('categorize — camada por path (casos reais concilliun-crm)', () => {
   it.each<[string, Layer]>([
@@ -176,11 +183,17 @@ describe('buildFlatTree — árvore Camada → [arquivos] (perfil flat, #6)', ()
     expect(Object.keys(tree)).toEqual(['layers']);
   });
 
-  it('camadas vazias são omitidas e as folhas preservam path/patch', () => {
+  it('camadas vazias são omitidas e as folhas preservam o arquivo de diff + camada', () => {
     const tree = buildFlatTree([file('app/Models/Plan.php', '@@\n+x')]);
     expect(tree.layers).toHaveLength(1);
     expect(tree.layers[0].files).toEqual([
-      { path: 'app/Models/Plan.php', patch: '@@\n+x', layer: 'model' },
+      {
+        path: 'app/Models/Plan.php',
+        status: { kind: 'modified' },
+        body: { kind: 'patch', patch: '@@\n+x' },
+        url: null,
+        layer: 'model',
+      },
     ]);
   });
 });
@@ -208,5 +221,41 @@ describe('groupReview — despacho por perfil; alternar modular↔flat (AC3)', (
     expect(review.layers).toEqual(buildFlatTree(files).layers);
     expect(review).not.toHaveProperty('groups');
     expect(review.layers.map((l) => l.layer)).toEqual(['migration', 'model', 'tests']);
+  });
+});
+
+describe('groupStarts / jumpGroup — navegação por grupo (#11)', () => {
+  // Review modular com 3 grupos: Billing (1 arquivo), Crm (2 arquivos), Sem contexto (1).
+  const review = groupReview(
+    [
+      file('app/Contexts/Billing/Models/Invoice.php'),
+      file('app/Contexts/Crm/Models/Contact.php'),
+      file('app/Contexts/Crm/Actions/CreateContact.php'),
+      file('composer.json'),
+    ],
+    'modular',
+  );
+
+  it('groupStarts marca o 1º arquivo de cada grupo no flatten', () => {
+    expect(groupStarts(review)).toEqual([0, 1, 3]);
+  });
+
+  it('jumpGroup next salta para o início do grupo seguinte', () => {
+    const starts = groupStarts(review);
+    expect(jumpGroup(starts, 0, 'next')).toBe(1); // Billing → Crm
+    expect(jumpGroup(starts, 1, 'next')).toBe(3); // Crm → Sem contexto
+    expect(jumpGroup(starts, 2, 'next')).toBe(3); // do meio do Crm → Sem contexto
+  });
+
+  it('jumpGroup prev salta para o início do grupo anterior', () => {
+    const starts = groupStarts(review);
+    expect(jumpGroup(starts, 3, 'prev')).toBe(1); // Sem contexto → Crm
+    expect(jumpGroup(starts, 2, 'prev')).toBe(0); // meio do Crm → Billing
+  });
+
+  it('fixa nas pontas (sem wrap)', () => {
+    const starts = groupStarts(review);
+    expect(jumpGroup(starts, 0, 'prev')).toBe(0);
+    expect(jumpGroup(starts, 3, 'next')).toBe(3);
   });
 });

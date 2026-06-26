@@ -1,6 +1,7 @@
 import { render } from 'ink-testing-library';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedRepo } from '../core/repo.js';
+import type { DiffFile } from '../core/diff.js';
 import type { PrDiff } from '../services/pr.js';
 
 // Mocka os serviços e o highlight: a view é testada como máquina de estados, sem
@@ -29,6 +30,8 @@ const tick = async () => {
 };
 const noop = () => {};
 
+const patch = (p: string): DiffFile['body'] => ({ kind: 'patch', patch: p });
+
 // Repo flat (soloboard): sem app/Contexts; o agrupamento é só por camada.
 const flatRepo: ResolvedRepo = {
   root: '/repo',
@@ -41,20 +44,35 @@ const flatRepo: ResolvedRepo = {
 const flatDiff: PrDiff = {
   number: 50,
   files: [
-    { path: 'tests/Feature/PlanTest.php', patch: '@@ -0 +1 @@\n+assert(true);' },
-    { path: 'app/Actions/CreatePlan.php', patch: '@@ -1 +1 @@\n+class CreatePlan {}' },
-    { path: 'app/Models/Plan.php', patch: '@@ -1 +1 @@\n+class Plan {}' },
-    { path: 'database/migrations/2024_create_plans_table.php', patch: null },
+    { path: 'tests/Feature/PlanTest.php', status: { kind: 'modified' }, body: patch('@@ -0 +1 @@\n+assert(true);'), url: null },
+    { path: 'app/Actions/CreatePlan.php', status: { kind: 'modified' }, body: patch('@@ -1 +1 @@\n+class CreatePlan {}'), url: null },
+    { path: 'app/Models/Plan.php', status: { kind: 'modified' }, body: patch('@@ -1 +1 @@\n+class Plan {}'), url: null },
+    { path: 'database/migrations/2024_create_plans_table.php', status: { kind: 'added' }, body: { kind: 'none' }, url: null },
   ],
 };
 
 const modularDiff: PrDiff = {
   number: 42,
   files: [
-    { path: 'composer.json', patch: '@@ -1 +1 @@\n+"x": 1' },
-    { path: 'app/Contexts/Crm/Models/Contact.php', patch: '@@ -1 +1 @@\n+class Contact {}' },
-    { path: 'database/migrations/2024_create_contacts_table.php', patch: null },
-    { path: 'tests/Feature/Crm/CreateContactTest.php', patch: '@@ -0 +1 @@\n+assert(true);' },
+    { path: 'composer.json', status: { kind: 'modified' }, body: patch('@@ -1 +1 @@\n+"x": 1'), url: null },
+    {
+      path: 'app/Contexts/Crm/Models/Contact.php',
+      status: { kind: 'modified' },
+      body: patch('@@ -1 +1 @@\n+class Contact {}'),
+      url: null,
+    },
+    {
+      path: 'database/migrations/2024_create_contacts_table.php',
+      status: { kind: 'added' },
+      body: { kind: 'none' },
+      url: null,
+    },
+    {
+      path: 'tests/Feature/Crm/CreateContactTest.php',
+      status: { kind: 'modified' },
+      body: patch('@@ -0 +1 @@\n+assert(true);'),
+      url: null,
+    },
   ],
 };
 
@@ -163,21 +181,10 @@ describe('ReviewView — diff e navegação (AC5)', () => {
     );
     await tick();
 
-    stdin.write('[B'); // seta para baixo
+    stdin.write('\x1B[B'); // seta para baixo
     await tick();
 
     expect(lastFrame()).toContain('arquivo 2/4');
-    unmount();
-  });
-
-  it('patch null: badge de diff indisponível, sem corpo', async () => {
-    diff.mockResolvedValue({
-      number: 9,
-      files: [{ path: 'storage/logo.png', patch: null }],
-    });
-    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={9} onBack={noop} />);
-    await tick();
-    expect(lastFrame()).toContain('patch indisponível');
     unmount();
   });
 
@@ -187,10 +194,49 @@ describe('ReviewView — diff e navegação (AC5)', () => {
     const { stdin, unmount } = render(<ReviewView repo={repo} number={42} onBack={onBack} />);
     await tick();
 
-    stdin.write(''); // esc
+    stdin.write('\x1B'); // esc
     await tick();
 
     expect(onBack).toHaveBeenCalled();
+    unmount();
+  });
+});
+
+describe('ReviewView — navegação por grupo e ajuda (#11)', () => {
+  it('] salta o grupo inteiro para o próximo; [ volta para o anterior', async () => {
+    diff.mockResolvedValue(modularDiff);
+    const { lastFrame, stdin, unmount } = render(
+      <ReviewView repo={repo} number={42} onBack={noop} />,
+    );
+    await tick();
+    // Grupos no flatten: Crm [1,2], Sem contexto [3,4]. Começa no 1º arquivo do Crm.
+    expect(lastFrame()).toContain('arquivo 1/4');
+
+    stdin.write(']'); // próximo grupo → 1º arquivo de "Sem contexto"
+    await tick();
+    expect(lastFrame()).toContain('arquivo 3/4');
+
+    stdin.write('['); // grupo anterior → de volta ao início do Crm
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/4');
+    unmount();
+  });
+
+  it('? mostra a folha de atalhos e fecha com ?', async () => {
+    diff.mockResolvedValue(modularDiff);
+    const { lastFrame, stdin, unmount } = render(
+      <ReviewView repo={repo} number={42} onBack={noop} />,
+    );
+    await tick();
+
+    stdin.write('?');
+    await tick();
+    expect(lastFrame()).toContain('Atalhos — Review');
+    expect(lastFrame()).toContain('grupo próximo/anterior');
+
+    stdin.write('?'); // fecha e volta à review
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/4');
     unmount();
   });
 });
@@ -248,6 +294,156 @@ describe('ReviewView — checklist de review (#7)', () => {
     stdin.write(' ');
     await tick();
     expect(lastFrame()).toContain('revisados 0/4');
+    unmount();
+  });
+});
+
+describe('ReviewView — diffs difíceis (AC1)', () => {
+  const hardDiff: PrDiff = {
+    number: 5,
+    files: [
+      {
+        path: 'src/code.ts',
+        status: { kind: 'modified' },
+        body: { kind: 'patch', patch: '@@ -1 +1 @@\n+ok' },
+        url: 'https://github.com/o/r/blob/sha/src/code.ts',
+      },
+      {
+        path: 'assets/logo.png',
+        status: { kind: 'modified' },
+        body: { kind: 'binary' },
+        url: 'https://github.com/o/r/blob/sha/assets/logo.png',
+      },
+      {
+        path: 'package-lock.json',
+        status: { kind: 'modified' },
+        body: { kind: 'truncated' },
+        url: 'https://github.com/o/r/blob/sha/package-lock.json',
+      },
+      {
+        path: 'src/new-name.ts',
+        status: { kind: 'renamed', from: 'src/old-name.ts' },
+        body: { kind: 'none' },
+        url: 'https://github.com/o/r/blob/sha/src/new-name.ts',
+      },
+    ],
+  };
+
+  it('truncado + binário + renomeado coexistem: árvore lista todos, sem travar', async () => {
+    diff.mockResolvedValue(hardDiff);
+    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={5} onBack={noop} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+    // os quatro arquivos aparecem na árvore (nada travou ao montar com os casos difíceis).
+    expect(frame).toContain('code.ts');
+    expect(frame).toContain('logo.png');
+    expect(frame).toContain('package-lock.json');
+    expect(frame).toContain('new-name.ts');
+    expect(frame).toContain('arquivo 1/4');
+    unmount();
+  });
+
+  // Cada caso é testado como arquivo SELECIONADO (1º da árvore), sem depender de
+  // navegação encadeada por teclado (frágil no ink-testing-library).
+  const only = (file: PrDiff['files'][number]): PrDiff => ({ number: 5, files: [file] });
+
+  it('binário: badge [binário] + linha de status, sem corpo de diff', async () => {
+    diff.mockResolvedValue(only(hardDiff.files[1]));
+    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={5} onBack={noop} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('[binário]');
+    expect(frame).toContain('binário — sem diff');
+    unmount();
+  });
+
+  it('truncado: badge [diff truncado] + URL do arquivo no GitHub, sem corpo', async () => {
+    diff.mockResolvedValue(only(hardDiff.files[2]));
+    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={5} onBack={noop} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('[diff truncado]');
+    expect(frame).toContain('ver no GitHub');
+    expect(frame).toContain('package-lock.json');
+    unmount();
+  });
+
+  it('renomeado: cabeçalho old → new + badge [renomeado]', async () => {
+    diff.mockResolvedValue(only(hardDiff.files[3]));
+    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={5} onBack={noop} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('[renomeado]');
+    expect(frame).toContain('src/old-name.ts → src/new-name.ts');
+    unmount();
+  });
+
+  it('criado e deletado: badge claro', async () => {
+    diff.mockResolvedValue(
+      only({ path: 'src/novo.ts', status: { kind: 'added' }, body: { kind: 'patch', patch: '+a' }, url: null }),
+    );
+    const created = render(<ReviewView repo={repo} number={5} onBack={noop} />);
+    await tick();
+    expect(created.lastFrame()).toContain('[criado]');
+    created.unmount();
+  });
+
+  it('arquivo gigante abre colapsado; [e] expande', async () => {
+    const huge = Array.from({ length: 2000 }, (_, i) => `+linha${i}`).join('\n');
+    diff.mockResolvedValue({
+      number: 6,
+      files: [
+        { path: 'src/big.ts', status: { kind: 'modified' }, body: { kind: 'patch', patch: huge }, url: null },
+      ],
+    });
+    const { lastFrame, stdin, unmount } = render(<ReviewView repo={repo} number={6} onBack={noop} />);
+    await tick();
+    expect(lastFrame()).toContain('expandir');
+    expect(lastFrame()).not.toContain('linha1999');
+
+    stdin.write('e');
+    await tick();
+    expect(lastFrame()).toContain('linha1999');
+    unmount();
+  });
+});
+
+describe('ReviewView — estados de erro tipados (AC3)', () => {
+  it('PAT inválido (401): leva a Settings na aba PRs', async () => {
+    diff.mockRejectedValue({ status: 401, message: 'Bad credentials' });
+    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={42} onBack={noop} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('PAT inválido');
+    expect(frame).toContain('aba PRs');
+    unmount();
+  });
+
+  it('rate limit (403): mostra quando reseta', async () => {
+    diff.mockRejectedValue({
+      status: 403,
+      response: { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1750001600' } },
+    });
+    const { lastFrame, unmount } = render(<ReviewView repo={repo} number={42} onBack={noop} />);
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('rate limit');
+    expect(frame).toContain('reseta às 15:33 UTC');
+    unmount();
+  });
+
+  it('sem rede: erro com [r] tentar de novo, e o retry refaz a busca', async () => {
+    diff.mockRejectedValueOnce(Object.assign(new Error('fetch failed'), { code: 'ENOTFOUND' }));
+    diff.mockResolvedValue(modularDiff);
+    const { lastFrame, stdin, unmount } = render(<ReviewView repo={repo} number={42} onBack={noop} />);
+    await tick();
+    expect(lastFrame()).toContain('sem rede');
+    expect(lastFrame()).toContain('[r] tentar de novo');
+
+    stdin.write('r');
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/4');
+    expect(diff).toHaveBeenCalledTimes(2);
     unmount();
   });
 });

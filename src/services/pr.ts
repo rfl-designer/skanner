@@ -1,14 +1,16 @@
 import { Octokit } from 'octokit';
 import { readToken } from './auth.js';
 import type { ResolvedRepo } from '../core/repo.js';
-import type { DiffFile } from '../core/review.js';
+import { toDiffFile, type DiffFile } from '../core/diff.js';
 
 /**
  * Módulo de serviço `pr` (PRD §6.3, CONTEXT.md §Módulo de serviço): a fronteira
  * tipada app↔Node que busca o diff de UMA PR (arquivos alterados + patches) via
  * Octokit e devolve o tipo do modelo (`DiffFile[]`). Sem regra de domínio inline —
  * o agrupamento mora no núcleo (`buildReviewTree`). PAT lazy via `auth`, nunca
- * logado. Paginação completa; o tratamento de patch truncado/grande é da #8.
+ * logado. Pagina a lista COMPLETA de arquivos antes de devolver; a classificação
+ * de cada arquivo (status/binário/truncado/renomeado) mora no núcleo (`toDiffFile`).
+ * Erros do Octokit propagam — a view os classifica via `classifyGitHubError` (#8).
  */
 
 /** O diff de uma PR: a lista de arquivos alterados com seus patches (modelo). */
@@ -20,7 +22,7 @@ export interface PrDiff {
 /**
  * Busca os arquivos alterados + patches da PR `number` do `repo`. Exige identidade
  * GitHub resolvida (a view barra repo local-only antes daqui) e um PAT persistido.
- * Pagina até o fim (caminho feliz); `patch` ausente vira `null` (a fonte não trouxe).
+ * Pagina até o fim (todas as páginas) e devolve a lista completa.
  */
 export async function diff(repo: ResolvedRepo, number: number): Promise<PrDiff> {
   if (repo.identity.kind !== 'github') {
@@ -41,11 +43,5 @@ export async function diff(repo: ResolvedRepo, number: number): Promise<PrDiff> 
     per_page: 100,
   });
 
-  return {
-    number,
-    files: files.map((f) => ({
-      path: f.filename,
-      patch: f.patch ?? null,
-    })),
-  };
+  return { number, files: files.map(toDiffFile) };
 }

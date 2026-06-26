@@ -40,10 +40,23 @@ afterEach(async () => {
 });
 
 describe('pr.diff — arquivos alterados + patches', () => {
-  it('mapeia filename→path e patch (null quando ausente)', async () => {
+  it('classifica cada arquivo (texto · binário · truncado · renomeado) via núcleo', async () => {
     paginate.mockResolvedValue([
-      { filename: 'app/Contexts/Crm/Models/Contact.php', patch: '@@ -1 +1 @@\n+x' },
-      { filename: 'storage/logo.png' }, // binário: sem patch
+      {
+        filename: 'app/Contexts/Crm/Models/Contact.php',
+        status: 'modified',
+        changes: 2,
+        patch: '@@ -1 +1 @@\n+x',
+        blob_url: 'https://github.com/o/r/blob/sha/Contact.php',
+      },
+      { filename: 'storage/logo.png', status: 'modified', changes: 0 }, // binário: sem patch, sem mudança
+      { filename: 'package-lock.json', status: 'modified', changes: 9000 }, // truncado: mudou, sem patch
+      {
+        filename: 'app/Contexts/Crm/Services/New.php',
+        status: 'renamed',
+        changes: 0,
+        previous_filename: 'app/Contexts/Crm/Services/Old.php',
+      },
     ]);
 
     const result = await diff(githubRepo, 42);
@@ -51,8 +64,25 @@ describe('pr.diff — arquivos alterados + patches', () => {
     expect(result).toEqual({
       number: 42,
       files: [
-        { path: 'app/Contexts/Crm/Models/Contact.php', patch: '@@ -1 +1 @@\n+x' },
-        { path: 'storage/logo.png', patch: null },
+        {
+          path: 'app/Contexts/Crm/Models/Contact.php',
+          status: { kind: 'modified' },
+          body: { kind: 'patch', patch: '@@ -1 +1 @@\n+x' },
+          url: 'https://github.com/o/r/blob/sha/Contact.php',
+        },
+        { path: 'storage/logo.png', status: { kind: 'modified' }, body: { kind: 'binary' }, url: null },
+        {
+          path: 'package-lock.json',
+          status: { kind: 'modified' },
+          body: { kind: 'truncated' },
+          url: null,
+        },
+        {
+          path: 'app/Contexts/Crm/Services/New.php',
+          status: { kind: 'renamed', from: 'app/Contexts/Crm/Services/Old.php' },
+          body: { kind: 'none' },
+          url: null,
+        },
       ],
     });
     expect(paginate).toHaveBeenCalledWith(listFiles, {
@@ -61,6 +91,20 @@ describe('pr.diff — arquivos alterados + patches', () => {
       pull_number: 42,
       per_page: 100,
     });
+  });
+
+  it('PR com mais de 300 arquivos: devolve todos (paginação completa)', async () => {
+    const many = Array.from({ length: 350 }, (_, i) => ({
+      filename: `src/file${i}.ts`,
+      status: 'modified',
+      changes: 1,
+      patch: `@@ -1 +1 @@\n+x${i}`,
+    }));
+    paginate.mockResolvedValue(many);
+
+    const result = await diff(githubRepo, 99);
+    expect(result.files).toHaveLength(350);
+    expect(result.files[349].path).toBe('src/file349.ts');
   });
 
   it('PR sem arquivos: devolve files vazio', async () => {

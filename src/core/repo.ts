@@ -67,6 +67,29 @@ export function modularBaseDirFor(override: RepoOverride): string {
   return override.modularBaseDir ?? DEFAULT_MODULAR_BASE_DIR;
 }
 
+/** Alterna o perfil: `modular` ↔ `flat` — regra pura da tecla `[m]` (issue #11). */
+export function toggleProfile(profile: Profile): Profile {
+  return profile === 'modular' ? 'flat' : 'modular';
+}
+
+/**
+ * Aplica a edição inline do `[m]` (issue #11) sobre o repo resolvido: o perfil
+ * alvo + o `modularBaseDir` digitado. Devolve o `override` a persistir por path
+ * (mapa `path → overrides`, ADR 0005) e o `repo` atualizado para a UI — `source`
+ * vira `override` porque a correção passou a ser manual. Diretório em branco cai
+ * no default (evita persistir string vazia). Pura/testável.
+ */
+export function applyProfileEdit(
+  repo: ResolvedRepo,
+  edit: { profile: Profile; modularBaseDir: string },
+): { override: RepoOverride; repo: ResolvedRepo } {
+  const modularBaseDir = edit.modularBaseDir.trim() || DEFAULT_MODULAR_BASE_DIR;
+  return {
+    override: { profile: edit.profile, modularBaseDir },
+    repo: { ...repo, profile: edit.profile, modularBaseDir, source: { profile: 'override' } },
+  };
+}
+
 /**
  * Funde o auto-detectado com o override do `conf`, aplicando a precedência:
  * perfil/identidade do override vencem o auto (AC 4–5). Sem `override.profile`,

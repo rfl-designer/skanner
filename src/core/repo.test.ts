@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyProfileEdit,
   DEFAULT_MODULAR_BASE_DIR,
   mergeOverride,
   modularBaseDirFor,
   parseOriginUrl,
+  toggleProfile,
   type RepoIdentity,
+  type ResolvedRepo,
 } from './repo.js';
 
 const github = (owner: string, name: string): RepoIdentity => ({ kind: 'github', owner, name });
@@ -81,5 +84,41 @@ describe('mergeOverride — AC 4 (auto) e AC 5 (override vence)', () => {
   it('sem remote e sem override → local-only', () => {
     const r = mergeOverride({ parsedIdentity: local, hasModularBaseDir: false, override: {} });
     expect(r.identity).toEqual(local);
+  });
+});
+
+describe('toggleProfile — regra da tecla [m] (#11)', () => {
+  it('modular → flat e flat → modular', () => {
+    expect(toggleProfile('modular')).toBe('flat');
+    expect(toggleProfile('flat')).toBe('modular');
+  });
+});
+
+describe('applyProfileEdit — edição inline do [m] (AC 4 / #11)', () => {
+  const repo: ResolvedRepo = {
+    root: '/repo/a',
+    identity: github('rfl-designer', 'soloboard'),
+    profile: 'flat',
+    modularBaseDir: DEFAULT_MODULAR_BASE_DIR,
+    source: { profile: 'auto' },
+  };
+
+  it('aplica perfil + modularBaseDir e marca a fonte como override', () => {
+    const out = applyProfileEdit(repo, { profile: 'modular', modularBaseDir: 'src/Modules' });
+
+    expect(out.override).toEqual({ profile: 'modular', modularBaseDir: 'src/Modules' });
+    expect(out.repo.profile).toBe('modular');
+    expect(out.repo.modularBaseDir).toBe('src/Modules');
+    expect(out.repo.source.profile).toBe('override');
+    // identidade e raiz preservadas — o [m] só mexe em perfil/dir.
+    expect(out.repo.identity).toEqual(repo.identity);
+    expect(out.repo.root).toBe(repo.root);
+  });
+
+  it('diretório em branco cai no default (não persiste string vazia)', () => {
+    const out = applyProfileEdit(repo, { profile: 'modular', modularBaseDir: '  ' });
+
+    expect(out.override.modularBaseDir).toBe(DEFAULT_MODULAR_BASE_DIR);
+    expect(out.repo.modularBaseDir).toBe(DEFAULT_MODULAR_BASE_DIR);
   });
 });
