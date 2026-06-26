@@ -23,6 +23,7 @@ import {
 } from '../core/filterPrs.js';
 import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
+import { theme, CURSOR, NO_CURSOR } from '../theme.js';
 
 /**
  * Aba **PRs** (modo remoto). Na issue #2 ela hospeda só o fluxo de auth **lazy**
@@ -109,7 +110,7 @@ export function PrsView({ repo, onCapturingChange, onOpenPr }: PrsViewProps) {
   if (state.status === 'authenticated') {
     return (
       <Box flexDirection="column">
-        <Text color="green">✓ autenticado como {state.user.login}</Text>
+        <Text color={theme.success}>✓ autenticado como {state.user.login}</Text>
         <Text dimColor>[c] trocar PAT · [x] limpar PAT</Text>
         {repo.identity.kind === 'github' ? (
           <Box marginTop={1}>
@@ -121,7 +122,7 @@ export function PrsView({ repo, onCapturingChange, onOpenPr }: PrsViewProps) {
             />
           </Box>
         ) : (
-          <Text color="yellow">owner/name não resolvido — repo local-only.</Text>
+          <Text color={theme.warn}>owner/name não resolvido — repo local-only.</Text>
         )}
       </Box>
     );
@@ -136,7 +137,7 @@ export function PrsView({ repo, onCapturingChange, onOpenPr }: PrsViewProps) {
         <Text>PAT: </Text>
         <TextInput value={value} onChange={setValue} onSubmit={submit} mask="*" />
       </Box>
-      {state.error ? <Text color="red">erro: {state.error}</Text> : null}
+      {state.error ? <Text color={theme.error}>erro: {state.error}</Text> : null}
     </Box>
   );
 }
@@ -267,14 +268,14 @@ function PrList({
     if (error.kind === 'rate-limit') {
       return (
         <Box flexDirection="column">
-          <Text color="red">rate limit do GitHub — reseta às {resetLabel(error.resetAt)}.</Text>
+          <Text color={theme.error}>rate limit do GitHub — reseta às {resetLabel(error.resetAt)}.</Text>
           <Text dimColor>[r] atualizar</Text>
         </Box>
       );
     }
     return (
       <Box flexDirection="column">
-        <Text color="red">
+        <Text color={theme.error}>
           {error.kind === 'network' ? 'sem rede — falha ao listar PRs.' : `erro: ${error.message}`}
         </Text>
         <Text dimColor>[r] tentar de novo</Text>
@@ -308,14 +309,14 @@ function PrList({
         visible.map((pr, i) => {
           const here = i === cursor;
           return (
-            <Text key={pr.number} color={here ? 'green' : undefined} wrap="truncate-end">
-              {here ? '› ' : '  '}
-              <Text color="yellow">#{pr.number}</Text> {pr.title}{' '}
-              {pr.draft ? <Text color="magenta">[draft] </Text> : null}
+            <Text key={pr.number} {...(here ? { color: theme.selected.color } : {})} wrap="truncate-end">
+              {here ? CURSOR : NO_CURSOR}
+              <Text color={theme.key}>#{pr.number}</Text> {pr.title}{' '}
+              {pr.draft ? <Text color={theme.badge}>[draft] </Text> : null}
               <Text dimColor>· @{pr.author} · {pr.branch} → {pr.baseBranch} · </Text>
-              <Text color="green">+{pr.additions}</Text>
+              <Text color={theme.add}>+{pr.additions}</Text>
               <Text dimColor>/</Text>
-              <Text color="red">-{pr.deletions}</Text>
+              <Text color={theme.del}>-{pr.deletions}</Text>
               <Text dimColor> · {pr.updatedAt.slice(0, 10)}</Text>
             </Text>
           );
@@ -362,7 +363,7 @@ function FilterBar({
         [d] drafts: {filters.hideDrafts ? 'ocultos' : 'todos'} · [b] base:{' '}
         {filters.baseBranch ?? 'todas'} · [a] autor: {filters.author ?? 'todos'} · [/]
         título: {filters.query.trim() || '—'}
-        {active ? <Text color="cyan"> · filtros ativos</Text> : null}
+        {active ? <Text color={theme.accent}> · filtros ativos</Text> : null}
       </Text>
       {searching ? (
         <Box>
@@ -389,7 +390,7 @@ function FreshnessLine({
   return (
     <Text dimColor>
       {fresh ? (
-        <Text color={fresh.stale ? 'yellow' : undefined} dimColor={!fresh.stale}>
+        <Text color={fresh.stale ? theme.warn : undefined} dimColor={!fresh.stale}>
           {fresh.label}
         </Text>
       ) : null}
