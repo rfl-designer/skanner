@@ -12,6 +12,8 @@ import {
   type LayerGroup,
 } from '../core/review.js';
 import { checkedRecord, checkedSet, prKey, progressOf } from '../core/checklist.js';
+import { badgesFor, isOversized } from '../core/diff.js';
+import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
 
 /**
@@ -23,15 +25,16 @@ import type { ResolvedRepo } from '../core/repo.js';
  * Navegação básica próximo/anterior (atalhos ricos são da #11).
  *
  * Máquina de estados: loading → (empty | error | ready). Sem regra de domínio
- * inline — categorização, árvore e o agregado do checklist moram no núcleo; aqui só
- * estado e desenho. O checklist (#7) carrega do `conf` ao abrir a PR (serviço
- * `review.getState`) e persiste a cada `[espaço]` (`review.setState`); o agregado
- * revisado/total por camada/contexto vem do núcleo (`progressOf`).
+ * inline — categorização, árvore, badge/colapso (#8) e o agregado do checklist (#7)
+ * moram no núcleo; aqui só estado e desenho. O checklist carrega do `conf` ao abrir a
+ * PR (serviço `review.getState`) e persiste a cada `[espaço]` (`review.setState`); o
+ * agregado revisado/total por camada/contexto vem do núcleo (`progressOf`). Os
+ * estados de erro são variantes tipadas (`GitHubError`), não strings.
  */
 type ReviewState =
   | { status: 'loading' }
   | { status: 'empty' }
-  | { status: 'error'; error: string }
+  | { status: 'error'; error: GitHubError }
   | { status: 'ready'; review: GroupedReview; files: ChangedFile[] };
 
 interface ReviewViewProps {
@@ -45,6 +48,10 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const [state, setState] = useState<ReviewState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
+  // Arquivo gigante abre colapsado; [e] expande o atual (reseta ao trocar de arquivo).
+  const [expanded, setExpanded] = useState(false);
+  // [r] refaz a busca após erro recuperável (sem rede / falha genérica).
+  const [nonce, setNonce] = useState(0);
 
   // Chave repo+PR do checklist; `null` em repo local-only (sem PR a persistir).
   const key = prKey(repo, number);
@@ -58,6 +65,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     let cancelled = false;
     setState({ status: 'loading' });
     setCursor(0);
+    setExpanded(false);
     diff(repo, number)
       .then((pr) => {
         if (cancelled) return;
@@ -70,14 +78,12 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
         setState({ status: 'ready', review: grouped, files });
       })
       .catch((err: unknown) => {
-        if (!cancelled) setState({ status: 'error', error: message(err) });
+        if (!cancelled) setState({ status: 'error', error: classifyGitHubError(err) });
       });
     return () => {
       cancelled = true;
     };
-  }, [repo, number]);
-
-  const fileCount = state.status === 'ready' ? state.files.length : 0;
+  }, [repo, number, nonce]);
 
   /** Alterna "revisado" no arquivo sob o cursor e persiste no `conf` (#7). */
   function toggleReviewed() {
@@ -95,13 +101,22 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
       onBack();
       return;
     }
-    if (fileCount === 0) return;
+    if (state.status === 'error') {
+      if (input === 'r' && canRetry(state.error)) setNonce((n) => n + 1);
+      return;
+    }
+    if (state.status !== 'ready') return;
     if (input === ' ') {
       toggleReviewed();
     } else if (inputKey.downArrow || input === 'j' || input === 'n') {
-      setCursor((c) => Math.min(c + 1, fileCount - 1));
+      setCursor((c) => Math.min(c + 1, state.files.length - 1));
+      setExpanded(false);
     } else if (inputKey.upArrow || input === 'k' || input === 'p') {
       setCursor((c) => Math.max(c - 1, 0));
+      setExpanded(false);
+    } else if (input === 'e') {
+      const file = state.files[Math.min(cursor, state.files.length - 1)];
+      if (isOversized(file.body)) setExpanded((e) => !e);
     }
   });
 
@@ -110,12 +125,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   }
 
   if (state.status === 'error') {
-    return (
-      <Box flexDirection="column">
-        <Text color="red">erro: {state.error}</Text>
-        <Text dimColor>[esc] voltar</Text>
-      </Box>
-    );
+    return <ErrorState error={state.error} />;
   }
 
   if (state.status === 'empty') {
@@ -129,6 +139,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
 
   const selected = state.files[Math.min(cursor, state.files.length - 1)];
   const overall = progressOf(allLayers(state.review), checked);
+  const badges = badgesFor(selected);
   return (
     <Box flexDirection="column">
       <Text>
@@ -139,13 +150,67 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
       <Box marginTop={1} flexDirection="row" gap={2}>
         <Tree review={state.review} checked={checked} selectedPath={selected.path} />
         <Box flexDirection="column" flexShrink={1}>
-          <Text dimColor>{selected.path}</Text>
-          <DiffBody file={selected} />
+          <Text>
+            {selected.status.kind === 'renamed' ? (
+              <Text dimColor>
+                {selected.status.from} → {selected.path}
+              </Text>
+            ) : (
+              <Text dimColor>{selected.path}</Text>
+            )}
+            {badges.map((b) => (
+              <Text key={b} color="magenta">
+                {' '}
+                [{b}]
+              </Text>
+            ))}
+          </Text>
+          <DiffBody file={selected} expanded={expanded} />
         </Box>
       </Box>
-      <Text dimColor>[↑/↓] arquivo · [espaço] revisado · [esc] voltar</Text>
+      <Text dimColor>[↑/↓] arquivo · [espaço] revisado · [e] expandir · [esc] voltar</Text>
     </Box>
   );
+}
+
+/** Estado de erro como máquina de variantes (PRD §6.5): cada `kind` rende sua saída. */
+function ErrorState({ error }: { error: GitHubError }) {
+  switch (error.kind) {
+    case 'invalid-pat':
+      return (
+        <Box flexDirection="column">
+          <Text color="red">PAT inválido ou expirado.</Text>
+          <Text dimColor>volte à aba PRs ([esc]) para recolar o token (Settings).</Text>
+          <Text dimColor>[esc] voltar</Text>
+        </Box>
+      );
+    case 'network':
+      return (
+        <Box flexDirection="column">
+          <Text color="red">sem rede — não deu para buscar o diff.</Text>
+          <Text dimColor>[r] tentar de novo · [esc] voltar</Text>
+        </Box>
+      );
+    case 'rate-limit':
+      return (
+        <Box flexDirection="column">
+          <Text color="red">rate limit do GitHub — reseta às {resetLabel(error.resetAt)}.</Text>
+          <Text dimColor>[esc] voltar</Text>
+        </Box>
+      );
+    case 'unknown':
+      return (
+        <Box flexDirection="column">
+          <Text color="red">erro: {error.message}</Text>
+          <Text dimColor>[r] tentar de novo · [esc] voltar</Text>
+        </Box>
+      );
+  }
+}
+
+/** Só erros recuperáveis oferecem retry; rate limit não entra em loop, PAT inválido vai a Settings. */
+function canRetry(error: GitHubError): boolean {
+  return error.kind === 'network' || error.kind === 'unknown';
 }
 
 /**
@@ -228,19 +293,41 @@ function LayerList({
   );
 }
 
-/** Diff unified do arquivo, colorido por prefixo e com highlight do conteúdo. */
-function DiffBody({ file }: { file: ChangedFile }) {
-  if (file.patch === null) {
-    return <Text dimColor>(sem diff — patch indisponível)</Text>;
+/**
+ * Corpo do arquivo selecionado como máquina sobre o `body` (PRD §6.5): binário e
+ * renomeado-puro viram linha de status; truncado mostra cabeçalho + URL no GitHub,
+ * sem corpo; patch gigante abre colapsado (evita re-render pesado da TUI). Só o
+ * patch (e expandido, se gigante) desenha hunks.
+ */
+function DiffBody({ file, expanded }: { file: ChangedFile; expanded: boolean }) {
+  const body = file.body;
+  switch (body.kind) {
+    case 'binary':
+      return <Text dimColor>(binário — sem diff){file.url ? ` · ${file.url}` : ''}</Text>;
+    case 'none':
+      return <Text dimColor>(sem mudança de conteúdo)</Text>;
+    case 'truncated':
+      return (
+        <Box flexDirection="column">
+          <Text dimColor>(diff truncado — grande demais para exibir)</Text>
+          {file.url ? <Text dimColor>ver no GitHub: {file.url}</Text> : null}
+        </Box>
+      );
+    case 'patch': {
+      if (isOversized(body) && !expanded) {
+        const lines = body.patch.split('\n').length;
+        return <Text dimColor>(arquivo grande: {lines} linhas — [e] expandir)</Text>;
+      }
+      const lang = languageOf(file.path);
+      return (
+        <Box flexDirection="column">
+          {body.patch.split('\n').map((line, i) => (
+            <DiffLine key={i} line={line} lang={lang} />
+          ))}
+        </Box>
+      );
+    }
   }
-  const lang = languageOf(file.path);
-  return (
-    <Box flexDirection="column">
-      {file.patch.split('\n').map((line, i) => (
-        <DiffLine key={i} line={line} lang={lang} />
-      ))}
-    </Box>
-  );
 }
 
 function DiffLine({ line, lang }: { line: string; lang: string | undefined }) {
@@ -294,16 +381,4 @@ function allLayers(review: GroupedReview): LayerGroup[] {
 function basename(path: string): string {
   const segs = path.split('/');
   return segs[segs.length - 1];
-}
-
-function message(err: unknown): string {
-  if (
-    err !== null &&
-    typeof err === 'object' &&
-    'status' in err &&
-    (err as { status?: number }).status === 401
-  ) {
-    return 'PAT inválido ou expirado (401).';
-  }
-  return err instanceof Error ? err.message : String(err);
 }
