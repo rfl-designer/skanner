@@ -40,8 +40,10 @@ describe('App', () => {
 
     expect(lastFrame()).toContain('Skanner');
     expect(lastFrame()).toContain('Working diff');
-    expect(lastFrame()).toContain('/tmp/fake-repo');
-    expect(lastFrame()).toContain('rfl-designer/skanner');
+    // O perfil do repo resolvido aparece no cabeçalho da aba local.
+    expect(lastFrame()).toContain('perfil flat');
+    // A aba Working diff já monta e começa a ler o diff local.
+    expect(lastFrame()).toContain('lendo o diff local');
 
     unmount();
   });

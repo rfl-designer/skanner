@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { highlight } from 'cli-highlight';
 import { diff } from '../services/pr.js';
 import * as review from '../services/review.js';
 import {
@@ -17,6 +16,7 @@ import { checkedRecord, checkedSet, prKey, progressOf } from '../core/checklist.
 import { badgesFor, isOversized } from '../core/diff.js';
 import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
+import { FileDiff, basename } from './diff-render.js';
 
 /**
  * Tela **Review da PR** (modo remoto, PRD §6.3). Abre uma PR como fatia vertical:
@@ -188,7 +188,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
               </Text>
             ))}
           </Text>
-          <DiffBody file={selected} expanded={expanded} />
+          <FileDiff file={selected} expanded={expanded} />
         </Box>
       </Box>
       <Text dimColor>
@@ -345,82 +345,6 @@ function LayerList({
   );
 }
 
-/**
- * Corpo do arquivo selecionado como máquina sobre o `body` (PRD §6.5): binário e
- * renomeado-puro viram linha de status; truncado mostra cabeçalho + URL no GitHub,
- * sem corpo; patch gigante abre colapsado (evita re-render pesado da TUI). Só o
- * patch (e expandido, se gigante) desenha hunks.
- */
-function DiffBody({ file, expanded }: { file: ChangedFile; expanded: boolean }) {
-  const body = file.body;
-  switch (body.kind) {
-    case 'binary':
-      return <Text dimColor>(binário — sem diff){file.url ? ` · ${file.url}` : ''}</Text>;
-    case 'none':
-      return <Text dimColor>(sem mudança de conteúdo)</Text>;
-    case 'truncated':
-      return (
-        <Box flexDirection="column">
-          <Text dimColor>(diff truncado — grande demais para exibir)</Text>
-          {file.url ? <Text dimColor>ver no GitHub: {file.url}</Text> : null}
-        </Box>
-      );
-    case 'patch': {
-      if (isOversized(body) && !expanded) {
-        const lines = body.patch.split('\n').length;
-        return <Text dimColor>(arquivo grande: {lines} linhas — [e] expandir)</Text>;
-      }
-      const lang = languageOf(file.path);
-      return (
-        <Box flexDirection="column">
-          {body.patch.split('\n').map((line, i) => (
-            <DiffLine key={i} line={line} lang={lang} />
-          ))}
-        </Box>
-      );
-    }
-  }
-}
-
-function DiffLine({ line, lang }: { line: string; lang: string | undefined }) {
-  if (line.startsWith('@@')) return <Text color="cyan">{line}</Text>;
-  if (line.startsWith('+')) {
-    return (
-      <Text color="green">
-        +{paint(line.slice(1), lang)}
-      </Text>
-    );
-  }
-  if (line.startsWith('-')) {
-    return (
-      <Text color="red">
-        -{paint(line.slice(1), lang)}
-      </Text>
-    );
-  }
-  return <Text dimColor>{paint(line, lang)}</Text>;
-}
-
-/** Aplica o highlight de sintaxe, tolerando trechos parciais de hunk. */
-function paint(code: string, lang: string | undefined): string {
-  if (code.length === 0) return code;
-  try {
-    return highlight(code, lang ? { language: lang, ignoreIllegals: true } : { ignoreIllegals: true });
-  } catch {
-    return code;
-  }
-}
-
-function languageOf(path: string): string | undefined {
-  if (path.endsWith('.blade.php')) return 'php';
-  if (path.endsWith('.php')) return 'php';
-  if (path.endsWith('.json')) return 'json';
-  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript';
-  if (path.endsWith('.js') || path.endsWith('.jsx')) return 'javascript';
-  if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'yaml';
-  return undefined;
-}
-
 function flatten(review: GroupedReview): ChangedFile[] {
   return allLayers(review).flatMap((l) => l.files);
 }
@@ -428,9 +352,4 @@ function flatten(review: GroupedReview): ChangedFile[] {
 /** Camadas da review, achatadas (flat: diretas; modular: de todos os contextos). */
 function allLayers(review: GroupedReview): LayerGroup[] {
   return review.profile === 'flat' ? review.layers : review.groups.flatMap((g) => g.layers);
-}
-
-function basename(path: string): string {
-  const segs = path.split('/');
-  return segs[segs.length - 1];
 }
