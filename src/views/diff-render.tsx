@@ -92,6 +92,53 @@ export function FileDiff({
   }
 }
 
+/**
+ * Modal de **arquivo completo** ([z], issue #53): caixa com borda ocupando a tela,
+ * mostrando o conteúdo da working tree do arquivo (não o diff). `content === null`
+ * é o estado "carregando…" enquanto o serviço lê o disco. Fatiamento idêntico ao
+ * `FileDiff` (viewport por `scrollTop`/`maxRows`, indicadores ▲/▼). Puramente
+ * presentacional — sem IO nem estado; o scroll e a leitura moram na view.
+ */
+export function FileViewer({
+  content,
+  scrollTop,
+  maxRows,
+}: {
+  content: string | null;
+  scrollTop: number;
+  maxRows: number;
+}) {
+  if (content === null) {
+    return (
+      <Box borderStyle="round" borderColor="gray" paddingX={1}>
+        <Text dimColor>carregando…</Text>
+      </Box>
+    );
+  }
+  const lines = content.split('\n');
+  const top = Math.min(Math.max(0, scrollTop), Math.max(0, lines.length - 1));
+  const end = Math.min(lines.length, top + maxRows);
+  return (
+    <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+      {top > 0 ? (
+        <Text color="cyan" dimColor>
+          ▲ {top} linha{top > 1 ? 's' : ''} acima
+        </Text>
+      ) : null}
+      {lines.slice(top, end).map((line, i) => (
+        <Text key={top + i} wrap="truncate-end">
+          {line}
+        </Text>
+      ))}
+      {end < lines.length ? (
+        <Text color="cyan" dimColor>
+          ▼ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo
+        </Text>
+      ) : null}
+    </Box>
+  );
+}
+
 function DiffLine({ line, lang }: { line: string; lang: string | undefined }) {
   // `truncate-end`: cada linha ocupa UMA linha de tela mesmo em painel estreito
   // (tmux) — sem quebra que estoure o viewport. Marcador +/− em bold p/ contraste.

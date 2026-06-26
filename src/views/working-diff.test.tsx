@@ -5,15 +5,16 @@ import type { DiffFile } from '../core/diff.js';
 
 // Mocka o serviço e o highlight: a view é testada como máquina de estados, sem
 // git/fs/rede e sem ANSI de sintaxe poluindo o frame.
-const { diff, stagedPaths, stage, unstage, stagedDiff, commit } = vi.hoisted(() => ({
+const { diff, stagedPaths, stage, unstage, stagedDiff, commit, fileContent } = vi.hoisted(() => ({
   diff: vi.fn(),
   stagedPaths: vi.fn(),
   stage: vi.fn(),
   unstage: vi.fn(),
   stagedDiff: vi.fn(),
   commit: vi.fn(),
+  fileContent: vi.fn(),
 }));
-vi.mock('../services/local.js', () => ({ diff, stagedPaths, stage, unstage, stagedDiff, commit }));
+vi.mock('../services/local.js', () => ({ diff, stagedPaths, stage, unstage, stagedDiff, commit, fileContent }));
 const { generate } = vi.hoisted(() => ({ generate: vi.fn() }));
 vi.mock('../services/commit-message.js', () => ({ generate }));
 const { issueBody } = vi.hoisted(() => ({ issueBody: vi.fn() }));
@@ -77,6 +78,17 @@ const twoHunks: DiffFile[] = [
   },
 ];
 
+// Arquivo de texto exibível (corpo patch, não-removido) p/ o modal [z] (#53).
+const viewableFile: DiffFile[] = [
+  { path: 'src/big.ts', status: { kind: 'modified' }, body: patch('@@ -1 +1 @@\n+x'), url: null },
+];
+// Binário: [z] é no-op (não há texto no disco a abrir).
+const binaryFile: DiffFile[] = [
+  { path: 'logo.png', status: { kind: 'modified' }, body: { kind: 'binary' }, url: null },
+];
+// Conteúdo longo (> viewport de teste, ~15 linhas) p/ exercitar o scroll do modal.
+const longText = Array.from({ length: 20 }, (_, i) => `linha-${String(i).padStart(2, '0')}`).join('\n');
+
 beforeEach(() => {
   diff.mockReset();
   stagedPaths.mockReset().mockResolvedValue(new Set());
@@ -84,6 +96,7 @@ beforeEach(() => {
   unstage.mockReset().mockResolvedValue(undefined);
   stagedDiff.mockReset().mockResolvedValue('PATCH');
   commit.mockReset().mockResolvedValue(undefined);
+  fileContent.mockReset().mockResolvedValue('');
   generate.mockReset().mockResolvedValue({ kind: 'ok', message: 'miolo gerado' });
   issueBody.mockReset().mockResolvedValue(null);
 });
@@ -538,6 +551,111 @@ describe('WorkingDiffView — reload preservado vs manual (#37)', () => {
     await tick();
     expect(lastFrame()).toContain('arquivo 1/1');
     expect(lastFrame()).toContain('2026_create_contacts_table.php');
+    unmount();
+  });
+});
+
+describe('WorkingDiffView — modal de arquivo completo [z] (#53)', () => {
+  // Abre o modal: entra no diff ([l]) e aperta [z]. fileContent já mockado por teste.
+  const open = async (stdin: { write: (s: string) => void }) => {
+    stdin.write('l'); // foco no diff (requisito do gatilho [z] nesta fatia)
+    await tick();
+    stdin.write('z');
+    await tick();
+  };
+
+  it('[z] abre o modal com o conteúdo completo lido da working tree', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    expect(fileContent).toHaveBeenCalledWith('/repo', 'src/big.ts');
+    expect(lastFrame()).toContain('linha-00'); // conteúdo do arquivo, não o diff
+    expect(lastFrame()).not.toContain('+x'); // o diff dá lugar ao arquivo inteiro
+    unmount();
+  });
+
+  it('estado "carregando…" enquanto a leitura não resolve', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockReturnValue(new Promise(() => {})); // nunca resolve
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    expect(lastFrame()).toContain('carregando');
+    unmount();
+  });
+
+  it('[j/k] rolam o conteúdo linha a linha, clampado', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    expect(lastFrame()).not.toContain('linha acima'); // topo: sem indicador
+
+    stdin.write('j'); // desce uma linha
+    await tick();
+    expect(lastFrame()).toContain('▲ 1 linha acima');
+    expect(lastFrame()).not.toContain('linha-00'); // a 1ª linha saiu do viewport
+
+    stdin.write('k'); // volta uma linha
+    await tick();
+    expect(lastFrame()).not.toContain('linha acima'); // de volta ao topo, clampado em 0
+    expect(lastFrame()).toContain('linha-00');
+    unmount();
+  });
+
+  it('[esc] fecha e devolve o Working diff com o diff intacto', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    expect(lastFrame()).toContain('linha-00');
+
+    stdin.write('\x1B'); // esc fecha
+    await tick();
+    expect(lastFrame()).not.toContain('linha-00');
+    expect(lastFrame()).toContain('+x'); // o diff (expandido por [l]) reaparece intacto
+    unmount();
+  });
+
+  it('captura o input: [h] não vaza para a navegação enquanto o modal está aberto', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+
+    stdin.write('h'); // normalmente volta à sidebar e dobra o diff — deve ser engolido
+    await tick();
+    expect(lastFrame()).toContain('linha-00'); // segue no modal
+
+    stdin.write('\x1B'); // fecha
+    await tick();
+    expect(lastFrame()).toContain('+x'); // diff ainda expandido: o [h] não vazou
+    unmount();
+  });
+
+  it('[z] em arquivo binário é no-op silencioso (sem leitura, sem modal)', async () => {
+    diff.mockResolvedValue(binaryFile);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    expect(fileContent).not.toHaveBeenCalled();
+    expect(lastFrame()).toContain('(binário — sem diff)'); // segue no diff, sem modal
+    unmount();
+  });
+
+  it('erro de leitura (race) é no-op: não abre o modal', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockRejectedValue(Object.assign(new Error('EISDIR'), { code: 'EISDIR' }));
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    expect(lastFrame()).not.toContain('carregando');
+    expect(lastFrame()).toContain('+x'); // voltou ao diff, sem quebrar a tela
     unmount();
   });
 });

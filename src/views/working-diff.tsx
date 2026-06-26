@@ -23,9 +23,9 @@ import {
   type IssueContext,
 } from '../core/commit.js';
 import { detectedLayers, preserveCursor } from '../core/local.js';
-import { hunkStarts, hunkAt, maxScrollTop, nextHunkStart, prevHunkStart } from '../core/diff.js';
+import { hunkStarts, hunkAt, isViewable, maxScrollTop, nextHunkStart, prevHunkStart } from '../core/diff.js';
 import type { ResolvedRepo } from '../core/repo.js';
-import { FileDiff, useDiffViewport, basename } from './diff-render.js';
+import { FileDiff, FileViewer, useDiffViewport, basename } from './diff-render.js';
 
 /**
  * Aba **Working diff** (modo local, CONTEXT.md §Modo local) — a tela inicial e o
@@ -64,6 +64,17 @@ type Gate =
   | { phase: 'committing' };
 
 /**
+ * Sub-fluxo do **modal de arquivo completo** ([z], issue #53), sobreposto ao
+ * `ready`. `closed` é navegação normal; `[z]` no diff de um arquivo exibível lê o
+ * conteúdo da working tree (`loading` → `ready`). Erro de leitura volta a `closed`
+ * (no-op silencioso). `esc` fecha; o diff por baixo fica intacto.
+ */
+type Viewer =
+  | { phase: 'closed' }
+  | { phase: 'loading' }
+  | { phase: 'ready'; content: string; scrollTop: number };
+
+/**
  * Gatilho de reload vindo da fiação (`app.tsx`): `nonce` muda a cada pedido de
  * recarga; `preserve` distingue o auto-watch (preserva o cursor por caminho) do
  * `[r]` manual (reseta ao topo). Issue #37.
@@ -92,6 +103,10 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   const gateAbort = useRef<AbortController | null>(null);
   // Reload interno disparado após um commit (some o que foi commitado).
   const [selfReload, setSelfReload] = useState(0);
+  // Modal de arquivo completo ([z], #53). `viewerReq` ignora leituras obsoletas
+  // (abre/fecha rápido) — só a leitura mais recente assenta o conteúdo.
+  const [viewer, setViewer] = useState<Viewer>({ phase: 'closed' });
+  const viewerReq = useRef(0);
   const maxRows = useDiffViewport();
 
   // Seleção atual (caminho + índice + estado de leitura) num ref, para o reload
@@ -147,6 +162,26 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
       cancelled = true;
     };
   }, [repo, reload, selfReload]);
+
+  /**
+   * Abre o modal de arquivo completo ([z], #53) no `file` selecionado: no-op
+   * silencioso se não for texto no disco (`isViewable`: binário/deletado/dir). Lê
+   * a working tree a cada abertura (sem cache); erro de leitura (race) volta a
+   * `closed`. `viewerReq` descarta leituras obsoletas.
+   */
+  function openViewer(file: ChangedFile) {
+    if (!isViewable(file)) return;
+    const id = ++viewerReq.current;
+    setViewer({ phase: 'loading' });
+    local
+      .fileContent(repo.root, file.path)
+      .then((content) => {
+        if (viewerReq.current === id) setViewer({ phase: 'ready', content, scrollTop: 0 });
+      })
+      .catch(() => {
+        if (viewerReq.current === id) setViewer({ phase: 'closed' });
+      });
+  }
 
   /** Marca/desmarca o arquivo sob o cursor para o commit. Sem persistência (#46). */
   function toggleMarked() {
@@ -269,6 +304,20 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   }
 
   useInput((input, key) => {
+    // Modal de arquivo aberto: captura o input (commit/navegação suspensos). [esc]
+    // fecha; [j/k]/setas rolam linha a linha, clampado pela última página (#53).
+    if (viewer.phase !== 'closed') {
+      if (key.escape) {
+        setViewer({ phase: 'closed' });
+      } else if (viewer.phase === 'ready') {
+        const ceil = maxScrollTop(viewer.content.split('\n').length, maxRows);
+        if (key.downArrow || input === 'j')
+          setViewer((v) => (v.phase === 'ready' ? { ...v, scrollTop: Math.min(v.scrollTop + 1, ceil) } : v));
+        else if (key.upArrow || input === 'k')
+          setViewer((v) => (v.phase === 'ready' ? { ...v, scrollTop: Math.max(v.scrollTop - 1, 0) } : v));
+      }
+      return;
+    }
     // Portão ativo: rota própria de input (o resto da navegação fica suspenso).
     if (gate.phase !== 'idle') {
       handleGateInput(input, key);
@@ -295,7 +344,9 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
       }
     } else if (focus === 'diff') {
       const sel = state.files[Math.min(cursor, state.files.length - 1)];
-      if (sel.body.kind === 'patch') {
+      if (input === 'z') {
+        openViewer(sel);
+      } else if (sel.body.kind === 'patch') {
         const ceil = maxScrollTop(sel.body.patch.split('\n').length, maxRows);
         const starts = hunkStarts(sel.body.patch);
         if (input === 'J') setScrollTop(Math.min(nextHunkStart(starts, scrollTop), ceil));
@@ -329,6 +380,18 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
 
   if (state.status === 'empty') {
     return <Text dimColor>nada para revisar — tudo commitado.</Text>;
+  }
+
+  // Modal de arquivo completo ([z], #53): substitui a tela enquanto aberto; ao
+  // fechar, o Working diff volta como estava (cursor/expandido/scroll intactos).
+  if (viewer.phase !== 'closed') {
+    return (
+      <FileViewer
+        content={viewer.phase === 'ready' ? viewer.content : null}
+        scrollTop={viewer.phase === 'ready' ? viewer.scrollTop : 0}
+        maxRows={maxRows}
+      />
+    );
   }
 
   if (gate.phase !== 'idle') {
