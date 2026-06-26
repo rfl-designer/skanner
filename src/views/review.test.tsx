@@ -202,6 +202,45 @@ describe('ReviewView — diff e navegação (AC5)', () => {
   });
 });
 
+describe('ReviewView — navegação por grupo e ajuda (#11)', () => {
+  it('] salta o grupo inteiro para o próximo; [ volta para o anterior', async () => {
+    diff.mockResolvedValue(modularDiff);
+    const { lastFrame, stdin, unmount } = render(
+      <ReviewView repo={repo} number={42} onBack={noop} />,
+    );
+    await tick();
+    // Grupos no flatten: Crm [1,2], Sem contexto [3,4]. Começa no 1º arquivo do Crm.
+    expect(lastFrame()).toContain('arquivo 1/4');
+
+    stdin.write(']'); // próximo grupo → 1º arquivo de "Sem contexto"
+    await tick();
+    expect(lastFrame()).toContain('arquivo 3/4');
+
+    stdin.write('['); // grupo anterior → de volta ao início do Crm
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/4');
+    unmount();
+  });
+
+  it('? mostra a folha de atalhos e fecha com ?', async () => {
+    diff.mockResolvedValue(modularDiff);
+    const { lastFrame, stdin, unmount } = render(
+      <ReviewView repo={repo} number={42} onBack={noop} />,
+    );
+    await tick();
+
+    stdin.write('?');
+    await tick();
+    expect(lastFrame()).toContain('Atalhos — Review');
+    expect(lastFrame()).toContain('grupo próximo/anterior');
+
+    stdin.write('?'); // fecha e volta à review
+    await tick();
+    expect(lastFrame()).toContain('arquivo 1/4');
+    unmount();
+  });
+});
+
 describe('ReviewView — checklist de review (#7)', () => {
   const CONTACT = 'app/Contexts/Crm/Models/Contact.php';
 

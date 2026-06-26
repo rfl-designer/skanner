@@ -5,6 +5,8 @@ import { diff } from '../services/pr.js';
 import * as review from '../services/review.js';
 import {
   groupReview,
+  groupStarts,
+  jumpGroup,
   LAYER_LABEL,
   NO_CONTEXT_LABEL,
   type ChangedFile,
@@ -52,6 +54,8 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const [expanded, setExpanded] = useState(false);
   // [r] refaz a busca após erro recuperável (sem rede / falha genérica).
   const [nonce, setNonce] = useState(0);
+  // Folha de atalhos (?) sobreposta (#11).
+  const [showHelp, setShowHelp] = useState(false);
 
   // Chave repo+PR do checklist; `null` em repo local-only (sem PR a persistir).
   const key = prKey(repo, number);
@@ -96,7 +100,18 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     review.setState(key, { checked: checkedRecord(next), updatedAt: new Date().toISOString() });
   }
 
+  // Fronteiras de grupo (1º arquivo de cada grupo) p/ a navegação por grupo (#11).
+  const starts = state.status === 'ready' ? groupStarts(state.review) : [];
+
   useInput((input, inputKey) => {
+    if (input === '?') {
+      setShowHelp((h) => !h);
+      return;
+    }
+    if (showHelp) {
+      if (inputKey.escape) setShowHelp(false);
+      return;
+    }
     if (inputKey.escape || input === 'b') {
       onBack();
       return;
@@ -114,11 +129,19 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     } else if (inputKey.upArrow || input === 'k' || input === 'p') {
       setCursor((c) => Math.max(c - 1, 0));
       setExpanded(false);
+    } else if (input === ']') {
+      setCursor((c) => jumpGroup(starts, c, 'next'));
+      setExpanded(false);
+    } else if (input === '[') {
+      setCursor((c) => jumpGroup(starts, c, 'prev'));
+      setExpanded(false);
     } else if (input === 'e') {
       const file = state.files[Math.min(cursor, state.files.length - 1)];
       if (isOversized(file.body)) setExpanded((e) => !e);
     }
   });
+
+  if (showHelp) return <HelpSheet />;
 
   if (state.status === 'loading') {
     return <Text dimColor>carregando diff da PR #{number}…</Text>;
@@ -168,7 +191,9 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
           <DiffBody file={selected} expanded={expanded} />
         </Box>
       </Box>
-      <Text dimColor>[↑/↓] arquivo · [espaço] revisado · [e] expandir · [esc] voltar</Text>
+      <Text dimColor>
+        [↑/↓] arquivo · ]/[ grupo · [espaço] revisado · [e] expandir · [?] ajuda · [esc] voltar
+      </Text>
     </Box>
   );
 }
@@ -212,6 +237,32 @@ function ErrorState({ error }: { error: GitHubError }) {
 function canRetry(error: GitHubError): boolean {
   return error.kind === 'network' || error.kind === 'unknown';
 }
+
+/** Folha de atalhos da review (`?`), AC 5 da issue #11. */
+function HelpSheet() {
+  return (
+    <Box flexDirection="column">
+      <Text bold color="cyan">
+        Atalhos — Review
+      </Text>
+      <Shortcut keys="↑/↓ j/k" desc="arquivo anterior/próximo" />
+      <Shortcut keys="] / [" desc="grupo próximo/anterior" />
+      <Shortcut keys="espaço" desc="marca/desmarca revisado" />
+      <Shortcut keys="e" desc="expande/colapsa arquivo grande" />
+      <Shortcut keys="esc / b" desc="voltar para a lista" />
+      <Shortcut keys="?" desc="fecha esta ajuda" />
+    </Box>
+  );
+}
+
+/** Uma linha "tecla → ação" da folha de atalhos. */
+function Shortcut({ keys, desc }: { keys: string; desc: string }) {
+  return (
+    <Text>
+      <Text color="yellow">{keys.padEnd(10)}</Text>
+      {desc}
+    </Text>
+  );
 
 /**
  * Árvore de navegação com o cursor marcado, o ✓ no arquivo revisado e o agregado
