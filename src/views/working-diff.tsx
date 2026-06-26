@@ -150,7 +150,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
           <FileDiff file={selected} expanded={expanded} />
         </Box>
       </Box>
-      <Text dimColor>[↑/↓] arquivo · [e] expandir · [r] recarregar</Text>
+      <Text dimColor>[↑/↓] arquivo · [e] expandir</Text>
     </Box>
   );
 }

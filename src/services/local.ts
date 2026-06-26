@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
+import { simpleGit, type SimpleGit } from 'simple-git';
 import type { DiffFile } from '../core/diff.js';
 import {
   isUntracked,
@@ -30,10 +30,14 @@ import {
 export async function diff(repoPath: string): Promise<DiffFile[]> {
   const git = simpleGit(repoPath);
   const status = await git.status();
+  const hasCommit = await repoHasCommit(git);
 
   const files: DiffFile[] = [];
   for (const entry of status.files) {
-    if (isUntracked(entry.index, entry.working_dir)) {
+    // Untracked OU repo sem nenhum commit (sem HEAD): num repo recém-criado, todo
+    // arquivo é efetivamente novo — sintetiza do fs (sem tocar o index), pois
+    // `git diff HEAD` falharia com "bad revision 'HEAD'". Issue #35.
+    if (isUntracked(entry.index, entry.working_dir) || !hasCommit) {
       // Lê os bytes crus (sem encoding): o núcleo decide binário/texto pelo
       // conteúdo (presença de `\0`); decodificar p/ utf8 aqui sintetizaria
       // mojibake de um arquivo binário novo como adições. Issue #34.
@@ -55,4 +59,19 @@ export async function diff(repoPath: string): Promise<DiffFile[]> {
     files.push(trackedDiffFile(code, raw));
   }
   return files;
+}
+
+/**
+ * O repo tem ao menos um commit (HEAD resolve)? Num repo recém-criado, antes do 1º
+ * commit, não há HEAD e `git diff HEAD` falha — saber disso antes deixa o serviço
+ * tratar o caso como "tudo é novo" (sintetiza do fs) em vez de propagar o erro.
+ * Issue #35.
+ */
+async function repoHasCommit(git: SimpleGit): Promise<boolean> {
+  try {
+    await git.revparse(['--verify', 'HEAD']);
+    return true;
+  } catch {
+    return false;
+  }
 }
