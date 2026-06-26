@@ -3,9 +3,11 @@ import path from 'node:path';
 import { simpleGit, type SimpleGit } from 'simple-git';
 import type { DiffFile } from '../core/diff.js';
 import {
+  isDirEntry,
   isUntracked,
   trackedDiffFile,
   untrackedDiffFile,
+  untrackedDirFile,
   type GitFileCode,
 } from '../core/local.js';
 
@@ -38,6 +40,13 @@ export async function diff(repoPath: string): Promise<DiffFile[]> {
     // arquivo é efetivamente novo — sintetiza do fs (sem tocar o index), pois
     // `git diff HEAD` falharia com "bad revision 'HEAD'". Issue #35.
     if (isUntracked(entry.index, entry.working_dir) || !hasCommit) {
+      // Diretório colapsado (repo git embarcado): o git não recursiona e devolve
+      // a entrada com barra final; lê-la como arquivo daria `EISDIR` e derrubaria
+      // o diff inteiro. Vira um DiffFile sem corpo, sem tocar o fs.
+      if (isDirEntry(entry.path)) {
+        files.push(untrackedDirFile(entry.path));
+        continue;
+      }
       // Lê os bytes crus (sem encoding): o núcleo decide binário/texto pelo
       // conteúdo (presença de `\0`); decodificar p/ utf8 aqui sintetizaria
       // mojibake de um arquivo binário novo como adições. Issue #34.

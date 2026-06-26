@@ -3,11 +3,13 @@ import {
   bodyFromPatch,
   detectedLayers,
   isBinaryContent,
+  isDirEntry,
   preserveCursor,
   synthesizeAddition,
   toLocalStatus,
   trackedDiffFile,
   untrackedDiffFile,
+  untrackedDirFile,
 } from './local.js';
 import type { DiffFile } from './diff.js';
 
@@ -72,6 +74,29 @@ describe('untrackedDiffFile — arquivo novo vira DiffFile', () => {
     const file = untrackedDiffFile('.gitkeep', Buffer.alloc(0));
     expect(file.status).toEqual({ kind: 'added' });
     expect(file.body).toEqual({ kind: 'patch', patch: '' });
+  });
+});
+
+describe('isDirEntry — diretório untracked colapsado (repo embarcado)', () => {
+  it('entrada com barra final é diretório', () => {
+    expect(isDirEntry('embedded/')).toBe(true);
+    expect(isDirEntry('vendor/sub/')).toBe(true);
+  });
+
+  it('arquivo comum não é diretório', () => {
+    expect(isDirEntry('src/index.ts')).toBe(false);
+    expect(isDirEntry('.gitkeep')).toBe(false);
+  });
+});
+
+describe('untrackedDirFile — diretório untracked → DiffFile sem corpo', () => {
+  it('status added, body none, url null, barra final removida do path', () => {
+    expect(untrackedDirFile('embedded/')).toEqual<DiffFile>({
+      path: 'embedded',
+      status: { kind: 'added' },
+      body: { kind: 'none' },
+      url: null,
+    });
   });
 });
 

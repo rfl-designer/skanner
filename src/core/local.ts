@@ -68,6 +68,30 @@ export function isUntracked(index: string, workingDir: string): boolean {
 }
 
 /**
+ * A entrada do `git status` é um **diretório**, não um arquivo? O porcelain
+ * colapsa um diretório untracked numa única entrada com **barra final**
+ * (`?? dir/`) quando o git não recursiona nele — sobretudo um **repo git
+ * embarcado** (subdiretório com `.git` próprio: subprojeto clonado, worktree,
+ * dependência vendorizada). O serviço não pode ler esses bytes — `fs.readFile`
+ * num diretório lança `EISDIR` e derrubava o Working diff inteiro. O sinal é a
+ * barra final que o git anexa.
+ */
+export function isDirEntry(path: string): boolean {
+  return path.endsWith('/');
+}
+
+/**
+ * Entrada de diretório untracked (repo embarcado / dir colapsado) →
+ * [DiffFile](diff.ts). Status `added` (é novo no change-set); corpo `none`: o git
+ * não mostra o conteúdo de um repo embarcado e nós não lemos diretórios, então o
+ * reviewer só vê que o diretório existe, sem diff. A barra final é removida do
+ * path para o nome sair limpo na árvore. Coração do ramo de diretório do serviço.
+ */
+export function untrackedDirFile(path: string): DiffFile {
+  return { path: path.replace(/\/$/, ''), status: { kind: 'added' }, body: { kind: 'none' }, url: null };
+}
+
+/**
  * Códigos do `git status` → [FileStatus](diff.ts). União discriminada: rename
  * carrega o nome antigo (`from`), os demais não. Precedência rename → delete →
  * add → modify (um arquivo adicionado-e-modificado conta como adicionado).
