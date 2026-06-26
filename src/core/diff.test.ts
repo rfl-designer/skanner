@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   badgesFor,
   COLLAPSE_CEILING,
+  hunkStarts,
   isOversized,
   toDiffFile,
   type DiffFile,
@@ -112,5 +113,16 @@ describe('isOversized — colapso por teto de linhas', () => {
     expect(isOversized({ kind: 'binary' })).toBe(false);
     expect(isOversized({ kind: 'truncated' })).toBe(false);
     expect(isOversized({ kind: 'none' })).toBe(false);
+  });
+});
+
+describe('hunkStarts — âncoras de bloco no patch', () => {
+  it('acha a linha de cada cabeçalho @@', () => {
+    const patch = '@@ -1,2 +1,2 @@\n-a\n+b\n@@ -10,2 +10,2 @@\n-c\n+d';
+    expect(hunkStarts(patch)).toEqual([0, 3]);
+  });
+
+  it('patch sem cabeçalho de hunk não tem âncoras', () => {
+    expect(hunkStarts('+linha solta\n+outra')).toEqual([]);
   });
 });

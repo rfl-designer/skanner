@@ -1,7 +1,17 @@
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { highlight } from 'cli-highlight';
 import { isOversized } from '../core/diff.js';
 import type { ChangedFile } from '../core/review.js';
+
+/**
+ * Altura do viewport do diff em linhas, derivada das `rows` do terminal com folga
+ * para cabeçalho, rótulo do arquivo, indicadores de scroll e rodapé. Fallback 24
+ * (terminal sem `rows`, ex.: testes) — o diff inteiro raramente excede isso.
+ */
+export function useDiffViewport(): number {
+  const { stdout } = useStdout();
+  return Math.max(5, (stdout?.rows ?? 24) - 9);
+}
 
 /**
  * Render de diff compartilhado (CONTEXT.md §Render de diff): componentes
@@ -18,7 +28,19 @@ import type { ChangedFile } from '../core/review.js';
  * sem corpo. Patch só desenha hunks quando `expanded`; dobrado vira placeholder
  * ([tab] alterna) — o gigante distingue o aviso pelo nº de linhas.
  */
-export function FileDiff({ file, expanded }: { file: ChangedFile; expanded: boolean }) {
+export function FileDiff({
+  file,
+  expanded,
+  scrollTop = 0,
+  maxRows,
+}: {
+  file: ChangedFile;
+  expanded: boolean;
+  /** Primeira linha do patch a desenhar — âncora do hunk em foco (navegação [j/k]). */
+  scrollTop?: number;
+  /** Altura do viewport em linhas; sem ela, desenha o patch inteiro (sem scroll). */
+  maxRows?: number;
+}) {
   const body = file.body;
   switch (body.kind) {
     case 'binary':
@@ -41,11 +63,18 @@ export function FileDiff({ file, expanded }: { file: ChangedFile; expanded: bool
         return <Text dimColor>(diff dobrado — [tab] expandir)</Text>;
       }
       const lang = languageOf(file.path);
+      const lines = body.patch.split('\n');
+      const top = Math.min(Math.max(0, scrollTop), Math.max(0, lines.length - 1));
+      const end = maxRows === undefined ? lines.length : Math.min(lines.length, top + maxRows);
       return (
         <Box flexDirection="column">
-          {body.patch.split('\n').map((line, i) => (
-            <DiffLine key={i} line={line} lang={lang} />
+          {top > 0 ? <Text dimColor>↑ {top} linha{top > 1 ? 's' : ''} acima</Text> : null}
+          {lines.slice(top, end).map((line, i) => (
+            <DiffLine key={top + i} line={line} lang={lang} />
           ))}
+          {end < lines.length ? (
+            <Text dimColor>↓ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo</Text>
+          ) : null}
         </Box>
       );
     }

@@ -13,10 +13,10 @@ import {
   type LayerGroup,
 } from '../core/review.js';
 import { checkedRecord, checkedSet, prKey, progressOf } from '../core/checklist.js';
-import { badgesFor } from '../core/diff.js';
+import { badgesFor, hunkStarts } from '../core/diff.js';
 import { classifyGitHubError, resetLabel, type GitHubError } from '../core/github-error.js';
 import type { ResolvedRepo } from '../core/repo.js';
-import { FileDiff, basename } from './diff-render.js';
+import { FileDiff, useDiffViewport, basename } from './diff-render.js';
 
 /**
  * Tela **Review da PR** (modo remoto, PRD §6.3). Abre uma PR como fatia vertical:
@@ -52,6 +52,11 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   // Arquivo entra colapsado; [tab] desdobra/dobra o diff do atual (reseta ao trocar).
   const [expanded, setExpanded] = useState(false);
+  // Foco entre painéis: [l] vai ao diff (e desdobra), [h] volta à sidebar.
+  const [focus, setFocus] = useState<'sidebar' | 'diff'>('sidebar');
+  // Bloco (hunk) em foco no diff; [j/k] caminha entre eles quando o foco é o diff.
+  const [hunkIdx, setHunkIdx] = useState(0);
+  const maxRows = useDiffViewport();
   // [r] refaz a busca após erro recuperável (sem rede / falha genérica).
   const [nonce, setNonce] = useState(0);
   // Folha de atalhos (?) sobreposta (#11).
@@ -70,6 +75,8 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     setState({ status: 'loading' });
     setCursor(0);
     setExpanded(false);
+    setFocus('sidebar');
+    setHunkIdx(0);
     diff(repo, number)
       .then((pr) => {
         if (cancelled) return;
@@ -123,20 +130,34 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     if (state.status !== 'ready') return;
     if (input === ' ') {
       toggleReviewed();
+    } else if (input === 'h') {
+      setFocus('sidebar');
+    } else if (input === 'l') {
+      setFocus('diff');
+      setExpanded(true);
+    } else if (inputKey.tab) {
+      setExpanded((e) => !e);
+    } else if (focus === 'diff') {
+      const sel = state.files[Math.min(cursor, state.files.length - 1)];
+      const last = (sel.body.kind === 'patch' ? hunkStarts(sel.body.patch).length : 0) - 1;
+      if (inputKey.downArrow || input === 'j' || input === 'n') setHunkIdx((h) => Math.min(h + 1, Math.max(0, last)));
+      else if (inputKey.upArrow || input === 'k' || input === 'p') setHunkIdx((h) => Math.max(h - 1, 0));
     } else if (inputKey.downArrow || input === 'j' || input === 'n') {
       setCursor((c) => Math.min(c + 1, state.files.length - 1));
       setExpanded(false);
+      setHunkIdx(0);
     } else if (inputKey.upArrow || input === 'k' || input === 'p') {
       setCursor((c) => Math.max(c - 1, 0));
       setExpanded(false);
+      setHunkIdx(0);
     } else if (input === ']') {
       setCursor((c) => jumpGroup(starts, c, 'next'));
       setExpanded(false);
+      setHunkIdx(0);
     } else if (input === '[') {
       setCursor((c) => jumpGroup(starts, c, 'prev'));
       setExpanded(false);
-    } else if (inputKey.tab) {
-      setExpanded((e) => !e);
+      setHunkIdx(0);
     }
   });
 
@@ -162,6 +183,10 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const selected = state.files[Math.min(cursor, state.files.length - 1)];
   const overall = progressOf(allLayers(state.review), checked);
   const badges = badgesFor(selected);
+  const hunks = selected.body.kind === 'patch' ? hunkStarts(selected.body.patch) : [];
+  const safeHunk = Math.min(hunkIdx, Math.max(0, hunks.length - 1));
+  const scrollTop = expanded && hunks.length > 0 ? hunks[safeHunk] : 0;
+  const onDiff = focus === 'diff';
   return (
     <Box flexDirection="column">
       <Text>
@@ -174,11 +199,13 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
         <Box flexDirection="column" flexShrink={1}>
           <Text>
             {selected.status.kind === 'renamed' ? (
-              <Text dimColor>
+              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
                 {selected.status.from} → {selected.path}
               </Text>
             ) : (
-              <Text dimColor>{selected.path}</Text>
+              <Text color={onDiff ? 'cyan' : undefined} dimColor={!onDiff}>
+                {selected.path}
+              </Text>
             )}
             {badges.map((b) => (
               <Text key={b} color="magenta">
@@ -186,12 +213,15 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
                 [{b}]
               </Text>
             ))}
+            {onDiff && hunks.length > 1 ? <Text dimColor> · bloco {safeHunk + 1}/{hunks.length}</Text> : null}
           </Text>
-          <FileDiff file={selected} expanded={expanded} />
+          <FileDiff file={selected} expanded={expanded} scrollTop={scrollTop} maxRows={maxRows} />
         </Box>
       </Box>
       <Text dimColor>
-        [j/k] arquivo · ]/[ grupo · [espaço] revisado · [tab] expandir · [?] ajuda · [esc] voltar
+        {onDiff
+          ? '[j/k] bloco · [h] sidebar · [espaço] revisado · [tab] dobrar · [?] ajuda · [esc] voltar'
+          : '[j/k] arquivo · ]/[ grupo · [l] diff · [espaço] revisado · [tab] expandir · [?] ajuda · [esc] voltar'}
       </Text>
     </Box>
   );
@@ -244,10 +274,11 @@ function HelpSheet() {
       <Text bold color="cyan">
         Atalhos — Review
       </Text>
-      <Shortcut keys="↑/↓ j/k" desc="arquivo anterior/próximo" />
+      <Shortcut keys="↑/↓ j/k" desc="arquivo anterior/próximo (sidebar) · bloco anterior/próximo (diff)" />
+      <Shortcut keys="l / h" desc="entra no diff (desdobra) / volta à sidebar" />
       <Shortcut keys="] / [" desc="grupo próximo/anterior" />
       <Shortcut keys="espaço" desc="marca/desmarca revisado" />
-      <Shortcut keys="tab" desc="expande/colapsa arquivo grande" />
+      <Shortcut keys="tab" desc="desdobra/dobra o diff" />
       <Shortcut keys="esc / b" desc="voltar para a lista" />
       <Shortcut keys="?" desc="fecha esta ajuda" />
     </Box>
