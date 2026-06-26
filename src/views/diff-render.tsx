@@ -93,49 +93,86 @@ export function FileDiff({
 }
 
 /**
- * Modal de **arquivo completo** ([z], issue #53): caixa com borda ocupando a tela,
- * mostrando o conteúdo da working tree do arquivo (não o diff). `content === null`
- * é o estado "carregando…" enquanto o serviço lê o disco. Fatiamento idêntico ao
- * `FileDiff` (viewport por `scrollTop`/`maxRows`, indicadores ▲/▼). Puramente
- * presentacional — sem IO nem estado; o scroll e a leitura moram na view.
+ * Modal de **arquivo completo** ([z], issues #53/#54): caixa com borda ocupando a
+ * tela, mostrando o conteúdo da working tree do arquivo (não o diff). `content ===
+ * null` é o estado "carregando…" enquanto o serviço lê o disco. Cada linha vem com
+ * número (calha dimColor) e syntax highlight pela extensão do path, reusando o
+ * `paint` do diff. O título traz o caminho + `linha X/N`; o rodapé, os atalhos.
+ * Fatiamento idêntico ao `FileDiff` (viewport por `scrollTop`/`maxRows`,
+ * indicadores ▲/▼). Puramente presentacional — o scroll e a leitura moram na view.
  */
 export function FileViewer({
+  path,
   content,
   scrollTop,
   maxRows,
 }: {
+  path: string;
   content: string | null;
   scrollTop: number;
   maxRows: number;
 }) {
   if (content === null) {
     return (
-      <Box borderStyle="round" borderColor="gray" paddingX={1}>
-        <Text dimColor>carregando…</Text>
+      <Box flexDirection="column">
+        <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+          <Text wrap="truncate-start">
+            <Text bold color="cyan">
+              {path}
+            </Text>
+          </Text>
+          <Text dimColor>carregando…</Text>
+        </Box>
+        <ViewerFooter />
       </Box>
     );
   }
+  const lang = languageOf(path);
   const lines = content.split('\n');
   const top = Math.min(Math.max(0, scrollTop), Math.max(0, lines.length - 1));
   const end = Math.min(lines.length, top + maxRows);
+  // Largura da calha pelo maior número de linha do arquivo (alinhamento à direita).
+  const gutter = String(lines.length).length;
   return (
-    <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
-      {top > 0 ? (
-        <Text color="cyan" dimColor>
-          ▲ {top} linha{top > 1 ? 's' : ''} acima
+    <Box flexDirection="column">
+      <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+        <Text wrap="truncate-start">
+          <Text bold color="cyan">
+            {path}
+          </Text>
+          <Text dimColor>
+            {' '}
+            · linha {top + 1}/{lines.length}
+          </Text>
         </Text>
-      ) : null}
-      {lines.slice(top, end).map((line, i) => (
-        <Text key={top + i} wrap="truncate-end">
-          {line}
-        </Text>
-      ))}
-      {end < lines.length ? (
-        <Text color="cyan" dimColor>
-          ▼ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo
-        </Text>
-      ) : null}
+        {top > 0 ? (
+          <Text color="cyan" dimColor>
+            ▲ {top} linha{top > 1 ? 's' : ''} acima
+          </Text>
+        ) : null}
+        {lines.slice(top, end).map((line, i) => (
+          <Text key={top + i} wrap="truncate-end">
+            <Text dimColor>{String(top + i + 1).padStart(gutter, ' ')} </Text>
+            {paint(line, lang)}
+          </Text>
+        ))}
+        {end < lines.length ? (
+          <Text color="cyan" dimColor>
+            ▼ {lines.length - end} linha{lines.length - end > 1 ? 's' : ''} abaixo
+          </Text>
+        ) : null}
+      </Box>
+      <ViewerFooter />
     </Box>
+  );
+}
+
+/** Rodapé de ajuda do modal de arquivo ([z], #54). */
+function ViewerFooter() {
+  return (
+    <Text dimColor wrap="truncate-end">
+      [j/k] linha · [g/G] topo/fim · [z/esc] fechar
+    </Text>
   );
 }
 

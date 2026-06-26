@@ -71,8 +71,8 @@ type Gate =
  */
 type Viewer =
   | { phase: 'closed' }
-  | { phase: 'loading' }
-  | { phase: 'ready'; content: string; scrollTop: number };
+  | { phase: 'loading'; path: string }
+  | { phase: 'ready'; path: string; content: string; scrollTop: number };
 
 /**
  * Gatilho de reload vindo da fiação (`app.tsx`): `nonce` muda a cada pedido de
@@ -172,11 +172,11 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   function openViewer(file: ChangedFile) {
     if (!isViewable(file)) return;
     const id = ++viewerReq.current;
-    setViewer({ phase: 'loading' });
+    setViewer({ phase: 'loading', path: file.path });
     local
       .fileContent(repo.root, file.path)
       .then((content) => {
-        if (viewerReq.current === id) setViewer({ phase: 'ready', content, scrollTop: 0 });
+        if (viewerReq.current === id) setViewer({ phase: 'ready', path: file.path, content, scrollTop: 0 });
       })
       .catch(() => {
         if (viewerReq.current === id) setViewer({ phase: 'closed' });
@@ -305,13 +305,18 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
 
   useInput((input, key) => {
     // Modal de arquivo aberto: captura o input (commit/navegação suspensos). [esc]
-    // fecha; [j/k]/setas rolam linha a linha, clampado pela última página (#53).
+    // ou [z] (toggle) fecham; [j/k]/setas rolam linha a linha e [g/G] vão a topo/
+    // fim, clampado pela última página (#53/#54).
     if (viewer.phase !== 'closed') {
-      if (key.escape) {
+      if (key.escape || input === 'z') {
         setViewer({ phase: 'closed' });
       } else if (viewer.phase === 'ready') {
         const ceil = maxScrollTop(viewer.content.split('\n').length, maxRows);
-        if (key.downArrow || input === 'j')
+        if (input === 'g')
+          setViewer((v) => (v.phase === 'ready' ? { ...v, scrollTop: 0 } : v));
+        else if (input === 'G')
+          setViewer((v) => (v.phase === 'ready' ? { ...v, scrollTop: ceil } : v));
+        else if (key.downArrow || input === 'j')
           setViewer((v) => (v.phase === 'ready' ? { ...v, scrollTop: Math.min(v.scrollTop + 1, ceil) } : v));
         else if (key.upArrow || input === 'k')
           setViewer((v) => (v.phase === 'ready' ? { ...v, scrollTop: Math.max(v.scrollTop - 1, 0) } : v));
@@ -354,6 +359,9 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         else if (key.downArrow || input === 'j') setScrollTop((s) => Math.min(s + 1, ceil));
         else if (key.upArrow || input === 'k') setScrollTop((s) => Math.max(s - 1, 0));
       }
+    } else if (input === 'z') {
+      // Sidebar: [z] abre o modal do arquivo selecionado, sem entrar no diff (#54).
+      openViewer(state.files[Math.min(cursor, state.files.length - 1)]);
     } else if (key.downArrow || input === 'j') {
       setCursor((c) => Math.min(c + 1, state.files.length - 1));
       setExpanded(false);
@@ -387,6 +395,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   if (viewer.phase !== 'closed') {
     return (
       <FileViewer
+        path={viewer.path}
         content={viewer.phase === 'ready' ? viewer.content : null}
         scrollTop={viewer.phase === 'ready' ? viewer.scrollTop : 0}
         maxRows={maxRows}
@@ -518,8 +527,8 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
       </Box>
       <Text dimColor wrap="truncate-end">
         {onDiff
-          ? '[j/k] rolar · [J/K] bloco · [h] sidebar · [tab] dobrar'
-          : `[j/k] arquivo · [l] diff · [espaço] marcar${marked.size > 0 ? ' · [c] commitar' : ''} · [tab] expandir`}
+          ? '[j/k] rolar · [J/K] bloco · [z] arquivo · [h] sidebar · [tab] dobrar'
+          : `[j/k] arquivo · [l] diff · [z] ver · [espaço] marcar${marked.size > 0 ? ' · [c] commitar' : ''} · [tab] expandir`}
       </Text>
     </Box>
   );

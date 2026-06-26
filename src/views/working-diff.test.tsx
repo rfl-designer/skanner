@@ -659,3 +659,73 @@ describe('WorkingDiffView — modal de arquivo completo [z] (#53)', () => {
     unmount();
   });
 });
+
+describe('WorkingDiffView — modal de arquivo: ergonomia [z] (#54)', () => {
+  const open = async (stdin: { write: (s: string) => void }) => {
+    stdin.write('l');
+    await tick();
+    stdin.write('z');
+    await tick();
+  };
+
+  it('título traz o caminho + linha X/N, e há números de linha na calha', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('src/big.ts'); // caminho no título
+    expect(frame).toContain('linha 1/20'); // posição X/N (20 linhas)
+    expect(frame).toContain(' 1 linha-00'); // calha de número (largura 2) + conteúdo
+    expect(frame).toContain('[g/G] topo/fim'); // rodapé de ajuda
+    unmount();
+  });
+
+  it('[g/G] vão a topo e fim do arquivo', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+
+    stdin.write('G'); // fim: última página (maxScrollTop(20,15) = 5 → linha 6/20)
+    await tick();
+    expect(lastFrame()).toContain('linha 6/20');
+    expect(lastFrame()).toContain('linha-19'); // a última linha está visível
+
+    stdin.write('g'); // topo
+    await tick();
+    expect(lastFrame()).toContain('linha 1/20');
+    expect(lastFrame()).toContain('linha-00');
+    unmount();
+  });
+
+  it('[z] com o modal aberto fecha (toggle)', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    await open(stdin);
+    expect(lastFrame()).toContain('linha-00');
+
+    stdin.write('z'); // toggle fecha
+    await tick();
+    expect(lastFrame()).not.toContain('linha-00');
+    expect(lastFrame()).toContain('+x'); // de volta ao diff
+    unmount();
+  });
+
+  it('[z] abre o modal a partir da sidebar (sem entrar no diff)', async () => {
+    diff.mockResolvedValue(viewableFile);
+    fileContent.mockResolvedValue(longText);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={modularRepo} />);
+    await tick();
+    // Sem [l]: foco segue na sidebar (estado inicial).
+    stdin.write('z');
+    await tick();
+    expect(fileContent).toHaveBeenCalledWith('/repo', 'src/big.ts');
+    expect(lastFrame()).toContain('linha-00'); // modal abriu direto da sidebar
+    unmount();
+  });
+});
