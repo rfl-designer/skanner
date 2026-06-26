@@ -3,7 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { render } from 'ink-testing-library';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ResolvedRepo } from './core/repo.js';
 import { App } from './app.js';
+
+const repo: ResolvedRepo = {
+  root: '/tmp/fake-repo',
+  identity: { kind: 'github', owner: 'rfl-designer', name: 'skanner' },
+  profile: 'flat',
+  modularBaseDir: 'app/Contexts',
+  source: { profile: 'auto' },
+};
 
 const tick = async () => {
   for (let i = 0; i < 6; i++) {
@@ -26,18 +35,19 @@ afterEach(async () => {
 });
 
 describe('App', () => {
-  it('abre no Working diff com o título e a aba ativa', () => {
-    const { lastFrame, unmount } = render(<App />);
+  it('abre no Working diff com o título, a aba ativa e o repo resolvido', () => {
+    const { lastFrame, unmount } = render(<App repo={repo} />);
 
     expect(lastFrame()).toContain('Skanner');
     expect(lastFrame()).toContain('Working diff');
-    expect(lastFrame()).toContain('[g] resolver raiz do repo');
+    expect(lastFrame()).toContain('/tmp/fake-repo');
+    expect(lastFrame()).toContain('rfl-designer/skanner');
 
     unmount();
   });
 
   it('alterna para a aba PRs com [tab] e cai no fluxo de auth', async () => {
-    const { lastFrame, stdin, unmount } = render(<App />);
+    const { lastFrame, stdin, unmount } = render(<App repo={repo} />);
 
     stdin.write('\t');
     await tick();

@@ -1,41 +1,28 @@
-import { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
-import { getRepoRoot } from '../services/repo.js';
+import { Box, Text } from 'ink';
+import type { ResolvedRepo } from '../core/repo.js';
 
 /**
- * Aba **Working diff** (modo local) — por ora a semente do esqueleto andante:
- * `[g]` resolve a raiz do repo via serviço Node. O change-set em fatia vertical
+ * Aba **Working diff** (modo local) — a tela inicial. Por ora mostra o repo já
+ * resolvido do cwd (raiz, identidade, perfil); o change-set em fatia vertical
  * entra nas issues delas.
  */
-export function WorkingDiffView() {
-  const [root, setRoot] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useInput((input) => {
-    if (input === 'g') {
-      getRepoRoot()
-        .then((path) => {
-          setError(null);
-          setRoot(path);
-        })
-        .catch((err: unknown) => {
-          setRoot(null);
-          setError(err instanceof Error ? err.message : String(err));
-        });
-    }
-  });
+export function WorkingDiffView({ repo }: { repo: ResolvedRepo }) {
+  const origin =
+    repo.identity.kind === 'github'
+      ? `${repo.identity.owner}/${repo.identity.name}`
+      : 'local-only';
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>[g] resolver raiz do repo</Text>
+      <Text>
+        <Text dimColor>repo </Text>
+        <Text color="green">{repo.root}</Text>
+      </Text>
+      <Text dimColor>
+        origin {origin} · perfil {repo.profile}
+      </Text>
       <Box marginTop={1}>
-        {root !== null ? (
-          <Text color="green">raiz: {root}</Text>
-        ) : error !== null ? (
-          <Text color="red">erro: {error}</Text>
-        ) : (
-          <Text dimColor>aperte [g] para chamar o serviço Node…</Text>
-        )}
+        <Text dimColor>change-set em fatia vertical entra nas issues delas…</Text>
       </Box>
     </Box>
   );
