@@ -3,14 +3,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedRepo } from '../core/repo.js';
 
 // Mocka os serviços: a view é testada como máquina de estados, sem rede/fs.
-const { authenticatedUser, setToken, clearToken, list } = vi.hoisted(() => ({
+const { authenticatedUser, setToken, clearToken, readCache, revalidate } = vi.hoisted(() => ({
   authenticatedUser: vi.fn(),
   setToken: vi.fn(),
   clearToken: vi.fn(),
-  list: vi.fn(),
+  readCache: vi.fn(),
+  revalidate: vi.fn(),
 }));
 vi.mock('../services/auth.js', () => ({ authenticatedUser, setToken, clearToken }));
-vi.mock('../services/prs.js', () => ({ list }));
+vi.mock('../services/prs.js', () => ({ readCache, revalidate }));
+
+const cachedList = (prs: unknown[], fetchedAt = new Date().toISOString()) => ({
+  prs,
+  etag: '"v"',
+  fetchedAt,
+});
+const pr = (number: number, title: string) => ({
+  number,
+  title,
+  author: 'rafa',
+  branch: 'feat/slice',
+  additions: 120,
+  deletions: 8,
+  updatedAt: '2026-06-20T10:00:00Z',
+});
 
 import { PrsView } from './prs.js';
 
@@ -35,8 +51,10 @@ beforeEach(() => {
   authenticatedUser.mockReset();
   setToken.mockReset();
   clearToken.mockReset();
-  list.mockReset();
-  list.mockResolvedValue([]);
+  readCache.mockReset();
+  revalidate.mockReset();
+  readCache.mockReturnValue(null);
+  revalidate.mockResolvedValue(cachedList([]));
 });
 
 describe('PrsView — auth lazy', () => {
@@ -84,20 +102,10 @@ describe('PrsView — auth lazy', () => {
   });
 });
 
-describe('PrsView — lista de PRs (issue #4)', () => {
-  it('autenticado: lista as PRs abertas com os metadados', async () => {
+describe('PrsView — lista de PRs (issue #4 + #9)', () => {
+  it('autenticado: lista as PRs abertas com os metadados e o frescor', async () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
-    list.mockResolvedValue([
-      {
-        number: 42,
-        title: 'feat: fatia vertical',
-        author: 'rafa',
-        branch: 'feat/slice',
-        additions: 120,
-        deletions: 8,
-        updatedAt: '2026-06-20T10:00:00Z',
-      },
-    ]);
+    revalidate.mockResolvedValue(cachedList([pr(42, 'feat: fatia vertical')]));
 
     const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
     await tick();
@@ -110,12 +118,39 @@ describe('PrsView — lista de PRs (issue #4)', () => {
     expect(frame).toContain('+120');
     expect(frame).toContain('-8');
     expect(frame).toContain('2026-06-20');
+    // Indicador de frescor visível (issue #9).
+    expect(frame).toContain('atualizado');
+    unmount();
+  });
+
+  it('reabrir o repo: pinta o cache na hora e revalida em 2º plano', async () => {
+    authenticatedUser.mockResolvedValue({ login: 'rafa' });
+    readCache.mockReturnValue(cachedList([pr(7, 'PR cacheada')]));
+    let resolveRevalidate: (v: unknown) => void = () => {};
+    revalidate.mockReturnValue(new Promise((res) => (resolveRevalidate = res)));
+
+    const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
+    await tick();
+
+    // Antes da rede responder, já mostra a lista cacheada + "revalidando…".
+    const before = lastFrame() ?? '';
+    expect(before).toContain('#7');
+    expect(before).toContain('PR cacheada');
+    expect(before).toContain('revalidando');
+
+    // A revalidação chega e substitui pela lista fresca.
+    resolveRevalidate(cachedList([pr(42, 'PR fresca')]));
+    await tick();
+    const after = lastFrame() ?? '';
+    expect(after).toContain('#42');
+    expect(after).toContain('PR fresca');
+    expect(after).not.toContain('revalidando');
     unmount();
   });
 
   it('autenticado sem PRs: estado vazio explícito', async () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
-    list.mockResolvedValue([]);
+    revalidate.mockResolvedValue(cachedList([]));
 
     const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
     await tick();
@@ -126,7 +161,7 @@ describe('PrsView — lista de PRs (issue #4)', () => {
 
   it('autenticado com falha na busca: estado de erro', async () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
-    list.mockRejectedValue(new Error('sem rede'));
+    revalidate.mockRejectedValue(new Error('sem rede'));
 
     const { lastFrame, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
     await tick();
@@ -135,18 +170,18 @@ describe('PrsView — lista de PRs (issue #4)', () => {
     unmount();
   });
 
-  it('[r] refaz a busca da lista', async () => {
+  it('[r] força a revalidação da lista', async () => {
     authenticatedUser.mockResolvedValue({ login: 'rafa' });
-    list.mockResolvedValue([]);
+    revalidate.mockResolvedValue(cachedList([]));
 
     const { stdin, unmount } = render(<PrsView repo={githubRepo} onCapturingChange={noop} />);
     await tick();
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(revalidate).toHaveBeenCalledTimes(1);
 
     stdin.write('r');
     await tick();
 
-    expect(list).toHaveBeenCalledTimes(2);
+    expect(revalidate).toHaveBeenCalledTimes(2);
     unmount();
   });
 
@@ -159,7 +194,8 @@ describe('PrsView — lista de PRs (issue #4)', () => {
     await tick();
 
     expect(lastFrame()).toContain('owner/name não resolvido');
-    expect(list).not.toHaveBeenCalled();
+    expect(revalidate).not.toHaveBeenCalled();
+    expect(readCache).not.toHaveBeenCalled();
     unmount();
   });
 });

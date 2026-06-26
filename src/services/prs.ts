@@ -1,11 +1,17 @@
 import { Octokit } from 'octokit';
 import { readToken } from './auth.js';
-import type { ResolvedRepo } from '../core/repo.js';
+import { readPrsCache, writePrsCache } from './conf.js';
+import type { ResolvedRepo, RepoIdentity } from '../core/repo.js';
 
 /**
  * Módulo de serviço `prs` (PRD §6.1, CONTEXT.md §Módulo de serviço): a fronteira
- * tipada app↔Node do modo remoto. Faz IO (Octokit) e devolve o tipo do modelo;
- * sem regra de domínio inline. Chamado direto pela aba PRs, sob remoto lazy.
+ * tipada app↔Node do modo remoto. Faz IO (Octokit + store `conf`) e devolve o
+ * tipo do modelo; sem regra de domínio inline (o frescor mora em `core/freshness`).
+ *
+ * Cache + frescor (issue #9): a lista é cacheada por repo no `conf` (`prsCache`,
+ * keyed `owner/name`). `readCache` devolve o cache na hora (abertura instantânea);
+ * `revalidate` faz uma **requisição condicional** com ETag/`If-None-Match` — um
+ * `304` reusa o cache **sem recontar rate limit** nem refazer o N+1 dos detalhes.
  *
  * O endpoint de listagem (`pulls.list`) **não** traz adições/remoções — por isso
  * a contagem vem de um `pulls.get` por PR (N+1), aceitável p/ uma ferramenta
@@ -24,31 +30,46 @@ export interface PullRequest {
 }
 
 /**
- * Lista as PRs abertas do `repo`, ordenadas pela atualização mais recente. Exige
- * identidade GitHub resolvida (`owner/name`); um repo local-only é barrado pela
- * view antes daqui — o guard mantém o tipo honesto. Reusa o PAT persistido.
+ * Lista de PRs cacheada de um repo (issue #9). `etag` alimenta a próxima
+ * requisição condicional; `fetchedAt` (ISO) alimenta o frescor da view.
  */
-export async function list(repo: ResolvedRepo): Promise<PullRequest[]> {
+export interface CachedList {
+  prs: PullRequest[];
+  etag: string | null;
+  fetchedAt: string;
+}
+
+/** `owner/name` resolvido, ou erro: a view barra o repo local-only antes daqui. */
+function githubIdentity(repo: ResolvedRepo): Extract<RepoIdentity, { kind: 'github' }> {
   if (repo.identity.kind !== 'github') {
     throw new Error('owner/name não resolvido — repo local-only.');
   }
-  const token = await readToken();
-  if (token === null) {
-    throw new Error('PAT ausente — autentique na aba PRs.');
-  }
+  return repo.identity;
+}
 
-  const { owner, name } = repo.identity;
-  const octokit = new Octokit({ auth: token });
+/** Cache da lista deste repo, ou `null` se nunca foi buscada (leitura instantânea). */
+export function readCache(repo: ResolvedRepo): CachedList | null {
+  const { owner, name } = githubIdentity(repo);
+  return readPrsCache(`${owner}/${name}`);
+}
 
-  const summaries = await octokit.paginate(octokit.rest.pulls.list, {
-    owner,
-    repo: name,
-    state: 'open',
-    sort: 'updated',
-    direction: 'desc',
-    per_page: 100,
-  });
+/** `error.status === N`? (RequestError do Octokit — ex.: 304 Not Modified.) */
+function hasStatus(err: unknown, status: number): boolean {
+  return (
+    err !== null &&
+    typeof err === 'object' &&
+    'status' in err &&
+    (err as { status?: number }).status === status
+  );
+}
 
+/** Busca add/del por PR (N+1) e monta o tipo do modelo, ordenado como veio. */
+async function detailsOf(
+  octokit: Octokit,
+  owner: string,
+  name: string,
+  summaries: { number: number; title: string; user: { login: string } | null; head: { ref: string }; updated_at: string }[],
+): Promise<PullRequest[]> {
   return Promise.all(
     summaries.map(async (pr) => {
       const { data } = await octokit.rest.pulls.get({
@@ -67,4 +88,55 @@ export async function list(repo: ResolvedRepo): Promise<PullRequest[]> {
       };
     }),
   );
+}
+
+/**
+ * Revalida a lista de PRs abertas do `repo` contra o GitHub, **stale-while-
+ * revalidate**: a view já mostrou `readCache`; esta promessa traz o resultado
+ * fresco em segundo plano e regrava o cache.
+ *
+ * Requisição condicional: envia `If-None-Match` com o ETag do cache. Um `304`
+ * (nada mudou) **não reconta rate limit** e devolve o cache intacto, pulando o
+ * N+1. Um `200` refaz os detalhes e regrava `{prs, etag, fetchedAt}`. Reusa o
+ * PAT persistido (lazy, arquivo `0600`).
+ */
+export async function revalidate(repo: ResolvedRepo): Promise<CachedList> {
+  const { owner, name } = githubIdentity(repo);
+  const token = await readToken();
+  if (token === null) {
+    throw new Error('PAT ausente — autentique na aba PRs.');
+  }
+
+  const key = `${owner}/${name}`;
+  const cached = readPrsCache(key);
+  const octokit = new Octokit({ auth: token });
+
+  try {
+    const response = await octokit.rest.pulls.list({
+      owner,
+      repo: name,
+      state: 'open',
+      sort: 'updated',
+      direction: 'desc',
+      per_page: 100,
+      headers: cached?.etag ? { 'if-none-match': cached.etag } : {},
+    });
+
+    const prs = await detailsOf(octokit, owner, name, response.data);
+    const fresh: CachedList = {
+      prs,
+      etag: response.headers.etag ?? null,
+      fetchedAt: new Date().toISOString(),
+    };
+    writePrsCache(key, fresh);
+    return fresh;
+  } catch (err) {
+    // 304 Not Modified: nada mudou — reusa o cache sem custo de rate limit.
+    if (hasStatus(err, 304) && cached !== null) {
+      const reused: CachedList = { ...cached, fetchedAt: new Date().toISOString() };
+      writePrsCache(key, reused);
+      return reused;
+    }
+    throw err;
+  }
 }
