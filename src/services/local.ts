@@ -17,9 +17,16 @@ import {
  * [change-set](CONTEXT.md) — **tudo fora do último commit** (staged + unstaged +
  * untracked) — via `simple-git`/`fs` e devolve a MESMA estrutura `DiffFile[]` que
  * o modo remoto consome, para o agrupador (`groupReview`) ficar agnóstico à
- * origem. **Read-only**: só `status` e `diff` (HEAD); nunca `add`/`add -N`, o
- * index do dono não é tocado (AC). Sem regra de domínio inline — a síntese do
- * untracked e o mapeamento de status moram no núcleo (`core/local`). Issue #14.
+ * origem. A leitura (`diff`) é **read-only**: só `status` e `diff HEAD`. Sem
+ * regra de domínio inline — a síntese do untracked e o mapeamento de status
+ * moram no núcleo (`core/local`). Issue #14.
+ *
+ * As escritas (`stage`/`unstage`/`commit`) são o **único** ponto de escrita do
+ * Skanner — o portão de commit local (issue #47, PRD `local-commit-gate`). Ficam
+ * isoladas aqui, atrás de uma ação explícita da aba local; o resto do app
+ * (navegação, PRs) segue read-only. `stagedPaths`/`stagedDiff` leem o index para
+ * o portão (o que será commitado e o que já estava staged antes — ver
+ * `core/commit.pathsToReset`).
  */
 
 /**
@@ -82,6 +89,51 @@ export async function diff(repoPath: string): Promise<DiffFile[]> {
     files.push(trackedDiffFile(code, raw));
   }
   return files;
+}
+
+/**
+ * Os paths atualmente staged no index (`git diff --cached --name-only`). O portão
+ * captura isso ANTES de stagear a seleção, para no cancelamento resetar só o que
+ * ele próprio stageou — nunca o que o dono já tinha staged (`pathsToReset`). #47.
+ */
+export async function stagedPaths(repoPath: string): Promise<Set<string>> {
+  const git = simpleGit(repoPath);
+  const out = await git.diff(['--cached', '--name-only']);
+  return new Set(
+    out
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0),
+  );
+}
+
+/** Adiciona os `paths` ao index (`git add`). Cobre modificação, criação e remoção. */
+export async function stage(repoPath: string, paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  await simpleGit(repoPath).add(paths);
+}
+
+/** Tira os `paths` do index (`git reset -- <paths>`), sem tocar a working tree. */
+export async function unstage(repoPath: string, paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  await simpleGit(repoPath).reset(['--', ...paths]);
+}
+
+/**
+ * O patch do que está staged para os `paths` (`git diff --cached`). É o que a IA
+ * lê — o que SERÁ commitado, que difere do marcado em edição parcial. #47.
+ */
+export async function stagedDiff(repoPath: string, paths: string[]): Promise<string> {
+  return simpleGit(repoPath).diff(['--cached', '--', ...paths]);
+}
+
+/**
+ * Commita o que está staged com `message`. Falha (ex.: hook de pre-commit que
+ * barra) propaga como erro — a view a trata e o staging fica de pé para o dono
+ * reagir. #47.
+ */
+export async function commit(repoPath: string, message: string): Promise<void> {
+  await simpleGit(repoPath).commit(message);
 }
 
 /**
