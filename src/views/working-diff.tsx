@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import * as local from '../services/local.js';
 import {
@@ -10,7 +10,7 @@ import {
   type Layer,
   type LayerGroup,
 } from '../core/review.js';
-import { detectedLayers } from '../core/local.js';
+import { detectedLayers, preserveCursor } from '../core/local.js';
 import { isOversized } from '../core/diff.js';
 import type { ResolvedRepo } from '../core/repo.js';
 import { FileDiff, basename } from './diff-render.js';
@@ -21,12 +21,14 @@ import { FileDiff, basename } from './diff-render.js';
  * via `simple-git`), delega o agrupamento ao núcleo (`groupReview`, que despacha
  * pelo perfil do repo) e renderiza a(s) camada(s) detectada(s) no topo +, abaixo, o
  * diff agrupado, reusando o render de diff compartilhado (`diff-render`). Read-only:
- * nada é escrito no repo (o serviço nunca toca o index). Recarrega ao montar — o
- * `[r]` global remonta a view (key={localNonce} no `app.tsx`); sem botão próprio.
+ * nada é escrito no repo (o serviço nunca toca o index). Recarrega ao montar e a
+ * cada bump da prop `reload` (issue #37): `[r]` manual reseta ao topo; o auto-watch
+ * preserva o cursor/expandido por caminho. Sem botão próprio.
  *
  * Máquina de estados: loading → (empty | error | ready). Sem regra de domínio
- * inline — síntese do untracked, status e camadas moram no núcleo; aqui só estado
- * e desenho. Sem checklist nem persistência (efêmero, fora de escopo v1, PRD §3).
+ * inline — síntese do untracked, status, camadas e a reseleção do cursor
+ * (`preserveCursor`) moram no núcleo; aqui só estado e desenho. Sem checklist nem
+ * persistência (efêmero, fora de escopo v1, PRD §3).
  */
 type LocalState =
   | { status: 'loading' }
@@ -34,27 +36,58 @@ type LocalState =
   | { status: 'error'; message: string }
   | { status: 'ready'; review: GroupedReview; files: ChangedFile[]; layers: Layer[] };
 
-export function WorkingDiffView({ repo }: { repo: ResolvedRepo }) {
+/**
+ * Gatilho de reload vindo da fiação (`app.tsx`): `nonce` muda a cada pedido de
+ * recarga; `preserve` distingue o auto-watch (preserva o cursor por caminho) do
+ * `[r]` manual (reseta ao topo). Issue #37.
+ */
+export type Reload = { nonce: number; preserve: boolean };
+
+/** Reload inicial (mount): sem preservação — o primeiro load abre no topo. */
+const NO_RELOAD: Reload = { nonce: 0, preserve: false };
+
+export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRepo; reload?: Reload }) {
   const [state, setState] = useState<LocalState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
   // Arquivo gigante abre colapsado; [e] expande o atual (reseta ao trocar de arquivo).
   const [expanded, setExpanded] = useState(false);
 
+  // Seleção atual (caminho + índice + expandido) num ref, para o reload preservado
+  // do auto-watch reposicionar por caminho SEM refazer o efeito a cada navegação.
+  const selection = useRef<{ path: string | null; index: number; expanded: boolean }>({
+    path: null,
+    index: 0,
+    expanded: false,
+  });
+  selection.current = {
+    path: state.status === 'ready' ? state.files[Math.min(cursor, state.files.length - 1)]?.path ?? null : null,
+    index: cursor,
+    expanded,
+  };
+
   useEffect(() => {
     let cancelled = false;
+    // Auto-watch preserva a seleção; [r] manual (preserve=false) abre no topo.
+    const keep = reload.preserve ? selection.current : null;
     setState({ status: 'loading' });
-    setCursor(0);
-    setExpanded(false);
     local
       .diff(repo.root)
       .then((files) => {
         if (cancelled) return;
         if (files.length === 0) {
+          setCursor(0);
+          setExpanded(false);
           setState({ status: 'empty' });
           return;
         }
         const review = groupReview(files, repo.profile);
-        setState({ status: 'ready', review, files: flatten(review), layers: detectedLayers(files) });
+        const flat = flatten(review);
+        const nextCursor = keep ? preserveCursor(keep.path, keep.index, flat) : 0;
+        // Mantém o expandido só se reaterrissou no MESMO arquivo; se caiu no vizinho, reseta.
+        const samePath = keep !== null && flat[nextCursor]?.path === keep.path;
+        setCursor(nextCursor);
+        setExpanded(samePath ? keep.expanded : false);
+        setState({ status: 'ready', review, files: flat, layers: detectedLayers(files) });
       })
       .catch((err: unknown) => {
         if (!cancelled) setState({ status: 'error', message: errorMessage(err) });
@@ -62,7 +95,7 @@ export function WorkingDiffView({ repo }: { repo: ResolvedRepo }) {
     return () => {
       cancelled = true;
     };
-  }, [repo]);
+  }, [repo, reload]);
 
   useInput((input, key) => {
     if (state.status !== 'ready') return;

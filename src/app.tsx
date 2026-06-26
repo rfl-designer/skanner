@@ -10,7 +10,7 @@ import {
 } from './core/repo.js';
 import { saveOverride } from './services/repo.js';
 import { watch } from './services/watch.js';
-import { WorkingDiffView } from './views/working-diff.js';
+import { WorkingDiffView, type Reload } from './views/working-diff.js';
 import { PrsView } from './views/prs.js';
 import { ReviewView } from './views/review.js';
 
@@ -34,8 +34,9 @@ export function App({ repo: initialRepo }: { repo: ResolvedRepo }) {
   const [capturing, setCapturing] = useState(false);
   // PR aberta para review (sub-tela da aba PRs); `null` = navegação por abas.
   const [openPr, setOpenPr] = useState<number | null>(null);
-  // Geração do snapshot do Working diff; `[r]` incrementa e remonta a view.
-  const [localNonce, setLocalNonce] = useState(0);
+  // Gatilho de reload do Working diff: `[r]` bumpa resetando ao topo
+  // (preserve=false); o auto-watch bumpa preservando o cursor (preserve=true). #37.
+  const [reload, setReload] = useState<Reload>({ nonce: 0, preserve: false });
   const [showHelp, setShowHelp] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
 
@@ -61,14 +62,15 @@ export function App({ repo: initialRepo }: { repo: ResolvedRepo }) {
   }
 
   // Auto-watch (issue #15): com ele ligado, assina o watcher e, a cada rajada de
-  // saves (já debounced pelo serviço), bumpa o `localNonce` → a `WorkingDiffView`
-  // remonta e recarrega sem clique. Sem loop: o reload é read-only e o watcher
-  // ignora diretórios de ruído. Desligado/desmontado/troca de repo → unsubscribe.
+  // saves (já debounced pelo serviço), bumpa o `reload` PRESERVANDO o cursor (#37)
+  // → a `WorkingDiffView` recarrega sem clique e sem jogar o dono de volta ao topo.
+  // Sem loop: o reload é read-only e o watcher ignora diretórios de ruído.
+  // Desligado/desmontado/troca de repo → unsubscribe.
   useEffect(() => {
     if (!repo.autoWatch) return;
     let unsub: (() => void) | undefined;
     try {
-      unsub = watch(repo.root, () => setLocalNonce((n) => n + 1));
+      unsub = watch(repo.root, () => setReload((rl) => ({ nonce: rl.nonce + 1, preserve: true })));
     } catch {
       // Degrada graciosamente: se o watcher falhar ao iniciar, o auto-watch
       // simplesmente não liga — a TUI segue de pé com o `[r]` manual.
@@ -107,7 +109,7 @@ export function App({ repo: initialRepo }: { repo: ResolvedRepo }) {
       return;
     }
     if (tab === 'local' && input === 'r') {
-      setLocalNonce((n) => n + 1);
+      setReload((rl) => ({ nonce: rl.nonce + 1, preserve: false }));
       return;
     }
     if (tab === 'local' && input === 'w') {
@@ -140,7 +142,7 @@ export function App({ repo: initialRepo }: { repo: ResolvedRepo }) {
         ) : openPr !== null ? (
           <ReviewView repo={repo} number={openPr} onBack={() => setOpenPr(null)} />
         ) : tab === 'local' ? (
-          <WorkingDiffView key={localNonce} repo={repo} />
+          <WorkingDiffView repo={repo} reload={reload} />
         ) : (
           <PrsView repo={repo} onCapturingChange={setCapturing} onOpenPr={setOpenPr} />
         )}
