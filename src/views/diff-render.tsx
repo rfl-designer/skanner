@@ -16,7 +16,7 @@ import type { ChangedFile } from '../core/review.js';
  * Corpo do arquivo como máquina sobre o `body` (PRD §6.5): binário e
  * renomeado-puro viram linha de status; truncado mostra aviso + URL no GitHub,
  * sem corpo. Patch só desenha hunks quando `expanded`; dobrado vira placeholder
- * ([tab] alterna), e o gigante entra dobrado por default (evita re-render pesado).
+ * ([tab] alterna) — o gigante distingue o aviso pelo nº de linhas.
  */
 export function FileDiff({ file, expanded }: { file: ChangedFile; expanded: boolean }) {
   const body = file.body;
