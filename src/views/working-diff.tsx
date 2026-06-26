@@ -49,7 +49,7 @@ const NO_RELOAD: Reload = { nonce: 0, preserve: false };
 export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRepo; reload?: Reload }) {
   const [state, setState] = useState<LocalState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
-  // Arquivo gigante abre colapsado; [e] expande o atual (reseta ao trocar de arquivo).
+  // Arquivo gigante abre colapsado; [tab] expande o atual (reseta ao trocar de arquivo).
   const [expanded, setExpanded] = useState(false);
 
   // Seleção atual (caminho + índice + expandido) num ref, para o reload preservado
@@ -105,7 +105,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
     } else if (key.upArrow || input === 'k') {
       setCursor((c) => Math.max(c - 1, 0));
       setExpanded(false);
-    } else if (input === 'e') {
+    } else if (key.tab) {
       const file = state.files[Math.min(cursor, state.files.length - 1)];
       if (isOversized(file.body)) setExpanded((e) => !e);
     }
@@ -150,7 +150,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
           <FileDiff file={selected} expanded={expanded} />
         </Box>
       </Box>
-      <Text dimColor>[↑/↓] arquivo · [e] expandir</Text>
+      <Text dimColor>[j/k] arquivo · [tab] expandir</Text>
     </Box>
   );
 }

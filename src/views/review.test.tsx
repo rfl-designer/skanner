@@ -390,7 +390,7 @@ describe('ReviewView — diffs difíceis (AC1)', () => {
     created.unmount();
   });
 
-  it('arquivo gigante abre colapsado; [e] expande', async () => {
+  it('arquivo gigante abre colapsado; [tab] expande', async () => {
     const huge = Array.from({ length: 2000 }, (_, i) => `+linha${i}`).join('\n');
     diff.mockResolvedValue({
       number: 6,
@@ -403,7 +403,7 @@ describe('ReviewView — diffs difíceis (AC1)', () => {
     expect(lastFrame()).toContain('expandir');
     expect(lastFrame()).not.toContain('linha1999');
 
-    stdin.write('e');
+    stdin.write('\t');
     await tick();
     expect(lastFrame()).toContain('linha1999');
     unmount();

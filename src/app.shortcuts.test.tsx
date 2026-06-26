@@ -71,12 +71,12 @@ beforeEach(() => {
 });
 
 describe('App — atalhos globais (#11)', () => {
-  it('[tab] alterna Working diff ⇄ PRs', async () => {
+  it('[←/→] alterna Working diff ⇄ PRs', async () => {
     const { lastFrame, stdin, unmount } = render(<App repo={repo} />);
     await tick();
     expect(lastFrame()).toContain('working perfil=flat');
 
-    stdin.write('\t');
+    stdin.write('[C');
     await tick();
     expect(lastFrame()).toContain('PRs view');
     unmount();

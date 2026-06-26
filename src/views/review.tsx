@@ -50,7 +50,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
   const [state, setState] = useState<ReviewState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
-  // Arquivo gigante abre colapsado; [e] expande o atual (reseta ao trocar de arquivo).
+  // Arquivo gigante abre colapsado; [tab] expande o atual (reseta ao trocar de arquivo).
   const [expanded, setExpanded] = useState(false);
   // [r] refaz a busca após erro recuperável (sem rede / falha genérica).
   const [nonce, setNonce] = useState(0);
@@ -135,7 +135,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
     } else if (input === '[') {
       setCursor((c) => jumpGroup(starts, c, 'prev'));
       setExpanded(false);
-    } else if (input === 'e') {
+    } else if (inputKey.tab) {
       const file = state.files[Math.min(cursor, state.files.length - 1)];
       if (isOversized(file.body)) setExpanded((e) => !e);
     }
@@ -192,7 +192,7 @@ export function ReviewView({ repo, number, onBack }: ReviewViewProps) {
         </Box>
       </Box>
       <Text dimColor>
-        [↑/↓] arquivo · ]/[ grupo · [espaço] revisado · [e] expandir · [?] ajuda · [esc] voltar
+        [j/k] arquivo · ]/[ grupo · [espaço] revisado · [tab] expandir · [?] ajuda · [esc] voltar
       </Text>
     </Box>
   );
@@ -248,7 +248,7 @@ function HelpSheet() {
       <Shortcut keys="↑/↓ j/k" desc="arquivo anterior/próximo" />
       <Shortcut keys="] / [" desc="grupo próximo/anterior" />
       <Shortcut keys="espaço" desc="marca/desmarca revisado" />
-      <Shortcut keys="e" desc="expande/colapsa arquivo grande" />
+      <Shortcut keys="tab" desc="expande/colapsa arquivo grande" />
       <Shortcut keys="esc / b" desc="voltar para a lista" />
       <Shortcut keys="?" desc="fecha esta ajuda" />
     </Box>
