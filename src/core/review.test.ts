@@ -4,6 +4,8 @@ import {
   buildReviewTree,
   categorize,
   groupReview,
+  groupStarts,
+  jumpGroup,
   resolveContext,
   type DiffFile,
   type Layer,
@@ -219,5 +221,41 @@ describe('groupReview — despacho por perfil; alternar modular↔flat (AC3)', (
     expect(review.layers).toEqual(buildFlatTree(files).layers);
     expect(review).not.toHaveProperty('groups');
     expect(review.layers.map((l) => l.layer)).toEqual(['migration', 'model', 'tests']);
+  });
+});
+
+describe('groupStarts / jumpGroup — navegação por grupo (#11)', () => {
+  // Review modular com 3 grupos: Billing (1 arquivo), Crm (2 arquivos), Sem contexto (1).
+  const review = groupReview(
+    [
+      file('app/Contexts/Billing/Models/Invoice.php'),
+      file('app/Contexts/Crm/Models/Contact.php'),
+      file('app/Contexts/Crm/Actions/CreateContact.php'),
+      file('composer.json'),
+    ],
+    'modular',
+  );
+
+  it('groupStarts marca o 1º arquivo de cada grupo no flatten', () => {
+    expect(groupStarts(review)).toEqual([0, 1, 3]);
+  });
+
+  it('jumpGroup next salta para o início do grupo seguinte', () => {
+    const starts = groupStarts(review);
+    expect(jumpGroup(starts, 0, 'next')).toBe(1); // Billing → Crm
+    expect(jumpGroup(starts, 1, 'next')).toBe(3); // Crm → Sem contexto
+    expect(jumpGroup(starts, 2, 'next')).toBe(3); // do meio do Crm → Sem contexto
+  });
+
+  it('jumpGroup prev salta para o início do grupo anterior', () => {
+    const starts = groupStarts(review);
+    expect(jumpGroup(starts, 3, 'prev')).toBe(1); // Sem contexto → Crm
+    expect(jumpGroup(starts, 2, 'prev')).toBe(0); // meio do Crm → Billing
+  });
+
+  it('fixa nas pontas (sem wrap)', () => {
+    const starts = groupStarts(review);
+    expect(jumpGroup(starts, 0, 'prev')).toBe(0);
+    expect(jumpGroup(starts, 3, 'next')).toBe(3);
   });
 });

@@ -313,6 +313,42 @@ function withLayers(files: DiffFile[]): ChangedFile[] {
   return files.map((f) => ({ ...f, layer: categorize(f.path) }));
 }
 
+/**
+ * Índices (no flatten <grupo>→Camada→arquivo) do 1º arquivo de cada grupo — as
+ * fronteiras que a navegação por grupo (issue #11) salta. Modular: por contexto;
+ * flat: por camada (o nível de grupo do flat). Lista ascendente que começa em 0;
+ * vazia quando não há grupo. Pura/testável.
+ */
+export function groupStarts(review: GroupedReview): number[] {
+  const starts: number[] = [];
+  let index = 0;
+  if (review.profile === 'flat') {
+    for (const layer of review.layers) {
+      starts.push(index);
+      index += layer.files.length;
+    }
+  } else {
+    for (const group of review.groups) {
+      starts.push(index);
+      for (const layer of group.layers) index += layer.files.length;
+    }
+  }
+  return starts;
+}
+
+/**
+ * Próximo/anterior início de grupo a partir do índice de arquivo atual (issue #11):
+ * salta para a fronteira do grupo seguinte/anterior. Nas pontas, fixa no 1º/último
+ * grupo (sem wrap). `starts` vem de `groupStarts`. Pura/testável.
+ */
+export function jumpGroup(starts: number[], current: number, direction: 'next' | 'prev'): number {
+  if (starts.length === 0) return current;
+  let gi = 0;
+  for (let i = 0; i < starts.length; i++) if (starts[i] <= current) gi = i;
+  const target = direction === 'next' ? Math.min(gi + 1, starts.length - 1) : Math.max(gi - 1, 0);
+  return starts[target];
+}
+
 /** Indexa por camada e devolve na ordem canônica, sem camadas vazias (PRD §4.2). */
 function toLayerGroups(files: ChangedFile[]): LayerGroup[] {
   const byLayer = new Map<Layer, ChangedFile[]>();
