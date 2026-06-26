@@ -404,12 +404,18 @@ describe('ReviewView — diffs difíceis (AC1)', () => {
     await tick();
     expect(lastFrame()).toContain('expandir');
     expect(lastFrame()).not.toContain('+linha0');
+    expect(lastFrame()).toContain('›'); // sidebar (cursor da árvore) visível
 
     stdin.write('\t');
     await tick();
     expect(lastFrame()).toContain('+linha0'); // desdobra no topo do diff
     expect(lastFrame()).not.toContain('linha1999'); // viewport: última linha fica fora da tela
     expect(lastFrame()).toContain('abaixo'); // indicador de scroll
+    expect(lastFrame()).not.toContain('›'); // sidebar some: diff em tela cheia
+
+    stdin.write('\t'); // dobra → sidebar volta
+    await tick();
+    expect(lastFrame()).toContain('›');
     unmount();
   });
 });
