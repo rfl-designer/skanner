@@ -2,8 +2,15 @@ import { existsSync, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readOverride, readPrsCache, writePrsCache } from './conf.js';
+import {
+  readOverride,
+  readPrsCache,
+  writePrsCache,
+  readPrFilters,
+  writePrFilters,
+} from './conf.js';
 import type { CachedList } from './prs.js';
+import type { PrFilters } from '../core/filterPrs.js';
 
 let dir: string;
 const previous = process.env.SKANNER_CONFIG_DIR;
@@ -76,6 +83,33 @@ describe('prsCache (issue #9)', () => {
 
   it('repo sem cache → null e ler não cria arquivo', () => {
     expect(readPrsCache('rfl-designer/skanner')).toBeNull();
+    expect(existsSync(path.join(dir, 'config.json'))).toBe(false);
+  });
+});
+
+describe('prFilters (issue #10)', () => {
+  const filters: PrFilters = {
+    hideDrafts: true,
+    baseBranch: 'main',
+    author: 'rafa',
+    query: 'fatia',
+  };
+
+  it('grava e relê os filtros por repo (key owner/name)', () => {
+    writePrFilters('rfl-designer/skanner', filters);
+    expect(readPrFilters('rfl-designer/skanner')).toEqual(filters);
+  });
+
+  it('escrever um repo preserva os filtros dos demais', () => {
+    writePrFilters('rfl-designer/skanner', filters);
+    writePrFilters('rfl-designer/other', { ...filters, author: 'ana' });
+
+    expect(readPrFilters('rfl-designer/skanner')?.author).toBe('rafa');
+    expect(readPrFilters('rfl-designer/other')?.author).toBe('ana');
+  });
+
+  it('repo sem filtros → null e ler não cria arquivo', () => {
+    expect(readPrFilters('rfl-designer/skanner')).toBeNull();
     expect(existsSync(path.join(dir, 'config.json'))).toBe(false);
   });
 });

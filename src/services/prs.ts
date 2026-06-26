@@ -1,7 +1,8 @@
 import { Octokit } from 'octokit';
 import { readToken } from './auth.js';
-import { readPrsCache, writePrsCache } from './conf.js';
+import { readPrsCache, writePrsCache, readPrFilters, writePrFilters } from './conf.js';
 import type { ResolvedRepo, RepoIdentity } from '../core/repo.js';
+import type { PrFilters } from '../core/filterPrs.js';
 
 /**
  * Módulo de serviço `prs` (PRD §6.1, CONTEXT.md §Módulo de serviço): a fronteira
@@ -56,6 +57,18 @@ function githubIdentity(repo: ResolvedRepo): Extract<RepoIdentity, { kind: 'gith
 export function readCache(repo: ResolvedRepo): CachedList | null {
   const { owner, name } = githubIdentity(repo);
   return readPrsCache(`${owner}/${name}`);
+}
+
+/** Filtros lembrados deste repo (issue #10), ou `null` se nunca foram salvos. */
+export function readFilters(repo: ResolvedRepo): PrFilters | null {
+  const { owner, name } = githubIdentity(repo);
+  return readPrFilters(`${owner}/${name}`);
+}
+
+/** Persiste os filtros deste repo (issue #10), keyed `owner/name`. */
+export function writeFilters(repo: ResolvedRepo, filters: PrFilters): void {
+  const { owner, name } = githubIdentity(repo);
+  writePrFilters(`${owner}/${name}`, filters);
 }
 
 /** `error.status === N`? (RequestError do Octokit — ex.: 304 Not Modified.) */

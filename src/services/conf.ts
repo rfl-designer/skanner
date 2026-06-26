@@ -1,6 +1,7 @@
 import Conf from 'conf';
 import envPaths from 'env-paths';
 import type { RepoOverride } from '../core/repo.js';
+import type { PrFilters } from '../core/filterPrs.js';
 import type { CachedList } from './prs.js';
 
 /**
@@ -18,6 +19,8 @@ interface SkannerStore {
   overrides: Record<string, RepoOverride>;
   /** Cache da lista de PRs por repo (issue #9), keyed `owner/name`. */
   prsCache: Record<string, CachedList>;
+  /** Filtros da lista de PRs lembrados por repo (issue #10), keyed `owner/name`. */
+  prFilters: Record<string, PrFilters>;
 }
 
 function configDir(): string {
@@ -53,4 +56,22 @@ export function writePrsCache(key: string, entry: CachedList): void {
   const conf = store();
   const all = conf.get('prsCache') ?? {};
   conf.set('prsCache', { ...all, [key]: entry });
+}
+
+/**
+ * Filtros da lista de PRs lembrados de um repo (`key = "owner/name"`), ou `null`
+ * se nunca foram salvos. Leitura sem efeito colateral — não cria o store.
+ */
+export function readPrFilters(key: string): PrFilters | null {
+  return store().get('prFilters')?.[key] ?? null;
+}
+
+/**
+ * Persiste os filtros da lista sob `key` (`owner/name`), preservando os demais
+ * repos no mapa — mesmo padrão de escrita do cache (issue #9).
+ */
+export function writePrFilters(key: string, filters: PrFilters): void {
+  const conf = store();
+  const all = conf.get('prFilters') ?? {};
+  conf.set('prFilters', { ...all, [key]: filters });
 }
