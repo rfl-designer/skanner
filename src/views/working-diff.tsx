@@ -50,8 +50,9 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
   const [state, setState] = useState<LocalState>({ status: 'loading' });
   const [cursor, setCursor] = useState(0);
   // Arquivo entra colapsado; [tab] desdobra/dobra o diff do atual (reseta ao trocar).
+  // Acoplado ao foco: expandido ⟺ foco no diff ⟺ sidebar escondida (tela cheia p/ o diff).
   const [expanded, setExpanded] = useState(false);
-  // Foco entre painéis: [l] vai ao diff (e desdobra), [h] volta à sidebar.
+  // Foco entre painéis: [l] vai ao diff (desdobra, esconde a sidebar), [h] volta (dobra).
   const [focus, setFocus] = useState<'sidebar' | 'diff'>('sidebar');
   // Bloco (hunk) em foco no diff; [j/k] caminha entre eles quando o foco é o diff.
   const [hunkIdx, setHunkIdx] = useState(0);
@@ -114,11 +115,18 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
     if (state.status !== 'ready') return;
     if (input === 'h') {
       setFocus('sidebar');
+      setExpanded(false);
     } else if (input === 'l') {
       setFocus('diff');
       setExpanded(true);
     } else if (key.tab) {
-      setExpanded((e) => !e);
+      if (expanded) {
+        setExpanded(false);
+        setFocus('sidebar');
+      } else {
+        setExpanded(true);
+        setFocus('diff');
+      }
     } else if (focus === 'diff') {
       const sel = state.files[Math.min(cursor, state.files.length - 1)];
       const last = (sel.body.kind === 'patch' ? hunkStarts(sel.body.patch).length : 0) - 1;
@@ -164,7 +172,7 @@ export function WorkingDiffView({ repo, reload = NO_RELOAD }: { repo: ResolvedRe
         <Text dimColor> · arquivo {cursor + 1}/{state.files.length}</Text>
       </Text>
       <Box marginTop={1} flexDirection="row" gap={2}>
-        <LocalTree review={state.review} selectedPath={selected.path} />
+        {!expanded && <LocalTree review={state.review} selectedPath={selected.path} />}
         <Box flexDirection="column" flexShrink={1}>
           <Text>
             {selected.status.kind === 'renamed' ? (

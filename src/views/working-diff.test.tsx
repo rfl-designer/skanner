@@ -183,15 +183,36 @@ describe('WorkingDiffView — ready (AC2, AC4)', () => {
     await tick();
     expect(lastFrame()).toContain('[l] diff'); // foco inicial: sidebar
     expect(lastFrame()).toContain('diff dobrado'); // entra colapsado
+    expect(lastFrame()).toContain('›'); // sidebar (cursor da árvore) visível
 
     stdin.write('l'); // entra no diff (e desdobra)
     await tick();
     expect(lastFrame()).toContain('[h] sidebar'); // rodapé do diff
     expect(lastFrame()).toContain('+b'); // conteúdo do 1º hunk visível
     expect(lastFrame()).toContain('bloco 1/2');
+    expect(lastFrame()).not.toContain('›'); // sidebar some: diff em tela cheia
 
     stdin.write('h'); // volta para a sidebar
     await tick();
+    expect(lastFrame()).toContain('[l] diff');
+    expect(lastFrame()).toContain('›'); // sidebar de volta
+    unmount();
+  });
+
+  it('[tab] esconde a sidebar ao expandir e a traz de volta ao dobrar', async () => {
+    diff.mockResolvedValue(twoHunks);
+    const { lastFrame, stdin, unmount } = render(<WorkingDiffView repo={flatRepo} />);
+    await tick();
+    expect(lastFrame()).toContain('›'); // sidebar visível (colapsado)
+
+    stdin.write('\t'); // desdobra → sidebar some, foco no diff
+    await tick();
+    expect(lastFrame()).not.toContain('›');
+    expect(lastFrame()).toContain('[h] sidebar'); // rodapé do diff (foco acoplado)
+
+    stdin.write('\t'); // dobra → sidebar volta, foco na sidebar
+    await tick();
+    expect(lastFrame()).toContain('›');
     expect(lastFrame()).toContain('[l] diff');
     unmount();
   });
